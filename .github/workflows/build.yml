@@ -6,7 +6,7 @@ on:
   pull_request:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   build:
@@ -34,14 +34,6 @@ jobs:
       - name: Unit tests + assemble debug & release APK
         run: ./gradlew testDebugUnitTest assembleDebug assembleRelease --no-daemon --stacktrace
 
-      - name: Determine app version
-        id: version
-        shell: bash
-        run: |
-          VERSION_NAME="$(grep -oP 'versionName\s*=\s*"\K[^"]+' app/build.gradle.kts)"
-          echo "name=$VERSION_NAME" >> "$GITHUB_OUTPUT"
-          echo "tag=v$VERSION_NAME" >> "$GITHUB_OUTPUT"
-
       - name: Upload debug APK artifact
         uses: actions/upload-artifact@v4
         with:
@@ -53,24 +45,3 @@ jobs:
         with:
           name: app-release
           path: app/build/outputs/apk/release/*.apk
-
-      - name: Prepare release APK
-        if: github.event_name == 'push'
-        run: |
-          mkdir -p dist
-          cp app/build/outputs/apk/release/app-release.apk "dist/GalaxyAlarm-${{ steps.version.outputs.tag }}.apk"
-
-      - name: Publish to GitHub Releases
-        if: github.event_name == 'push'
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ steps.version.outputs.tag }}
-          name: Galaxy Alarm ${{ steps.version.outputs.tag }}
-          files: dist/*.apk
-          generate_release_notes: true
-          body: |
-            Galaxy Alarm ${{ steps.version.outputs.tag }}
-
-            APK: GalaxyAlarm-${{ steps.version.outputs.tag }}.apk
-
-            スマホのブラウザでこのページを開き、APKをダウンロードしてインストールしてください。

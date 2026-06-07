@@ -7,9 +7,9 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Release tag, for example v1.1.0"
+        description: "Release tag, for example v1.1.2"
         required: true
-        default: "v1.1.0"
+        default: "v1.1.2"
 
 permissions:
   contents: write
@@ -46,8 +46,18 @@ jobs:
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
 
-      - name: Assemble release APK
-        run: ./gradlew assembleRelease --no-daemon --stacktrace
+      - name: Ensure app version matches tag
+        shell: bash
+        run: |
+          VERSION_NAME="$(grep -oP 'versionName\s*=\s*"\K[^"]+' app/build.gradle.kts)"
+          EXPECTED_TAG="v$VERSION_NAME"
+          if [ "${{ steps.tag.outputs.name }}" != "$EXPECTED_TAG" ]; then
+            echo "Tag ${{ steps.tag.outputs.name }} does not match app version $EXPECTED_TAG" >&2
+            exit 1
+          fi
+
+      - name: Unit tests + assemble release APK
+        run: ./gradlew testDebugUnitTest assembleRelease --no-daemon --stacktrace
 
       - name: Rename APK
         run: |
@@ -67,3 +77,19 @@ jobs:
             APK: GalaxyAlarm-${{ steps.tag.outputs.name }}.apk
 
             スマホのブラウザでこのページを開き、APKをダウンロードしてインストールしてください。
+
+      - name: Verify published APK URL
+        shell: bash
+        run: |
+          URL="https://github.com/${{ github.repository }}/releases/download/${{ steps.tag.outputs.name }}/GalaxyAlarm-${{ steps.tag.outputs.name }}.apk"
+          for i in {1..12}; do
+            status="$(curl -L -s -o /dev/null -w '%{http_code}' "$URL")"
+            if [ "$status" = "200" ]; then
+              echo "Verified $URL"
+              exit 0
+            fi
+            echo "Waiting for APK asset ($status): $URL"
+            sleep 10
+          done
+          echo "APK asset was not reachable: $URL" >&2
+          exit 1
