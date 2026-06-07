@@ -4,6 +4,8 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.galaxyalarm.AlarmApplication
+import com.galaxyalarm.backup.GitHubBackupClient
+import com.galaxyalarm.backup.GitHubBackupStore
 import com.galaxyalarm.data.entity.AlarmGroup
 import com.galaxyalarm.data.entity.AlarmItem
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -11,6 +13,7 @@ import kotlinx.coroutines.launch
 
 /** 追加/編集画面の状態保持。alarmId<=0 は新規。 */
 class EditAlarmViewModel(app: Application) : AndroidViewModel(app) {
+    private val appContext = app.applicationContext
     private val repo = (app as AlarmApplication).container.repository
 
     val draft = MutableStateFlow<AlarmItem?>(null)
@@ -39,11 +42,23 @@ class EditAlarmViewModel(app: Application) : AndroidViewModel(app) {
 
     fun save(onDone: () -> Unit) = viewModelScope.launch {
         draft.value?.let { repo.saveAlarm(it.copy(enabled = true)) }
+        backupIfConfigured()
         onDone()
     }
 
     fun delete(onDone: () -> Unit) = viewModelScope.launch {
         draft.value?.let { if (it.id > 0) repo.deleteAlarm(it) }
+        backupIfConfigured()
         onDone()
+    }
+
+    private suspend fun backupIfConfigured() {
+        runCatching {
+            val store = GitHubBackupStore(appContext)
+            val settings = store.load()
+            if (settings.token.isBlank()) return
+            val result = GitHubBackupClient.upload(settings.token, settings.gistId, repo.exportBackupJson())
+            if (result.gistId != settings.gistId) store.saveGistId(result.gistId)
+        }
     }
 }
