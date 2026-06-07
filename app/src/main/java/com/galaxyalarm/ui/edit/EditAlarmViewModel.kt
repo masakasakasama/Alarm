@@ -1,0 +1,43 @@
+package com.galaxyalarm.ui.edit
+
+import android.app.Application
+import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.viewModelScope
+import com.galaxyalarm.AlarmApplication
+import com.galaxyalarm.data.entity.AlarmGroup
+import com.galaxyalarm.data.entity.AlarmItem
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.launch
+
+/** 追加/編集画面の状態保持。alarmId<=0 は新規。 */
+class EditAlarmViewModel(app: Application) : AndroidViewModel(app) {
+    private val repo = (app as AlarmApplication).container.repository
+
+    val draft = MutableStateFlow<AlarmItem?>(null)
+    val groups = MutableStateFlow<List<AlarmGroup>>(emptyList())
+
+    fun load(alarmId: Long) = viewModelScope.launch {
+        val gs = repo.getGroups()
+        groups.value = gs
+        draft.value = if (alarmId > 0) {
+            repo.getAlarm(alarmId)
+        } else {
+            val gid = repo.ensureDefaultGroup()
+            AlarmItem(groupId = gs.firstOrNull()?.id ?: gid, hour = 7, minute = 0)
+        }
+    }
+
+    fun update(transform: (AlarmItem) -> AlarmItem) {
+        draft.value = draft.value?.let(transform)
+    }
+
+    fun save(onDone: () -> Unit) = viewModelScope.launch {
+        draft.value?.let { repo.saveAlarm(it) }
+        onDone()
+    }
+
+    fun delete(onDone: () -> Unit) = viewModelScope.launch {
+        draft.value?.let { if (it.id > 0) repo.deleteAlarm(it) }
+        onDone()
+    }
+}

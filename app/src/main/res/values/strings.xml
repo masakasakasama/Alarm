@@ -1,0 +1,7 @@
+<resources>
+    <string name="app_name">Galaxy アラーム</string>
+    <string name="alarm_channel_name">アラーム鳴動</string>
+    <string name="alarm_channel_desc">アラームの全画面通知</string>
+    <string name="service_channel_name">アラーム実行中</string>
+    <string name="health_channel_name">信頼性チェック</string>
+</resources>

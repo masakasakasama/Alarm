@@ -1,0 +1,106 @@
+package com.galaxyalarm.ui
+
+import android.app.Application
+import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.viewModelScope
+import com.galaxyalarm.AlarmApplication
+import com.galaxyalarm.data.entity.AlarmGroup
+import com.galaxyalarm.data.entity.AlarmItem
+import com.galaxyalarm.data.model.Weekdays
+import com.galaxyalarm.reliability.ReliabilityReport
+import com.galaxyalarm.scheduler.NextTriggerCalculator
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.launch
+
+data class GroupRow(
+    val group: AlarmGroup,
+    val enabledCount: Int,
+    val totalCount: Int,
+    val nextTriggerAt: Long?,
+)
+
+data class AlarmRow(
+    val alarm: AlarmItem,
+    val groupName: String,
+    val groupEnabled: Boolean,
+    val nextTriggerAt: Long?,   // 有効かつグループ有効かつ権限ありのときのみ非null
+)
+
+class MainViewModel(app: Application) : AndroidViewModel(app) {
+    private val container = (app as AlarmApplication).container
+    private val repo = container.repository
+    private val permissions = container.permissions
+
+    val canScheduleExact = MutableStateFlow(permissions.canScheduleExactAlarms())
+    val report = MutableStateFlow<ReliabilityReport?>(null)
+
+    private val groupsFlow = repo.observeGroups()
+    private val alarmsFlow = repo.observeAlarms()
+
+    val groupRows: StateFlow<List<GroupRow>> =
+        combine(groupsFlow, alarmsFlow) { groups, alarms ->
+            groups.map { g ->
+                val inGroup = alarms.filter { it.groupId == g.id }
+                val enabled = inGroup.filter { it.enabled }
+                val next = if (g.enabled && permissions.canScheduleExactAlarms()) {
+                    enabled.mapNotNull { nextOf(it) }.minOrNull()
+                } else null
+                GroupRow(g, enabled.size, inGroup.size, next)
+            }
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val alarmRows: StateFlow<List<AlarmRow>> =
+        combine(groupsFlow, alarmsFlow) { groups, alarms ->
+            val gmap = groups.associateBy { it.id }
+            alarms.map { a ->
+                val g = gmap[a.groupId]
+                val gEnabled = g?.enabled == true
+                val next = if (a.enabled && gEnabled && permissions.canScheduleExactAlarms()) nextOf(a) else null
+                AlarmRow(a, g?.name ?: "(不明)", gEnabled, next)
+            }
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val groups: StateFlow<List<AlarmGroup>> =
+        groupsFlow.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val logs = repo.observeLogs()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    private fun nextOf(a: AlarmItem): Long =
+        NextTriggerCalculator.nextTrigger(a.hour, a.minute, a.weekdaysMask)
+
+    init { refreshPermission(); runCheck() }
+
+    fun refreshPermission() { canScheduleExact.value = permissions.canScheduleExactAlarms() }
+
+    fun runCheck() = viewModelScope.launch { report.value = container.reliabilityChecker.runCheck() }
+    fun repair() = viewModelScope.launch { report.value = container.reliabilityChecker.repair() }
+
+    fun toggleGroup(group: AlarmGroup, enabled: Boolean) =
+        viewModelScope.launch { repo.setGroupEnabled(group.id, enabled); runCheck() }
+
+    fun addGroup(name: String) = viewModelScope.launch { repo.addGroup(name) }
+    fun renameGroup(group: AlarmGroup, name: String) = viewModelScope.launch { repo.renameGroup(group, name) }
+    fun deleteGroup(group: AlarmGroup) = viewModelScope.launch { repo.deleteGroup(group); runCheck() }
+
+    fun toggleAlarm(alarm: AlarmItem, enabled: Boolean) =
+        viewModelScope.launch { repo.setAlarmEnabled(alarm.id, enabled); runCheck() }
+
+    fun deleteAlarm(alarm: AlarmItem) = viewModelScope.launch { repo.deleteAlarm(alarm); runCheck() }
+
+    /** 権限付与後など、全再スケジュール。 */
+    fun rescheduleAll() = viewModelScope.launch { repo.rescheduleAll("ui-request"); runCheck() }
+
+    val nextAlarmRow: StateFlow<AlarmRow?> = alarmRows
+        .map { rows -> rows.filter { it.nextTriggerAt != null }.minByOrNull { it.nextTriggerAt!! } }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
+    companion object {
+        fun weekdayLabel(mask: Int) = Weekdays.label(mask)
+    }
+}
