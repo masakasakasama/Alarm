@@ -15,10 +15,6 @@ import kotlinx.coroutines.flow.Flow
 import org.json.JSONArray
 import org.json.JSONObject
 
-/**
- * UI とデータ層の単一の入口。書き込み後は必ず再スケジュールを呼び、
- * 「DB と予約のズレ」を作らない。
- */
 class AlarmRepository(
     private val groupDao: AlarmGroupDao,
     private val alarmDao: AlarmItemDao,
@@ -26,7 +22,6 @@ class AlarmRepository(
     private val logDao: AlarmEventLogDao,
     private val scheduler: AlarmScheduler,
 ) {
-    // ---- 監視 ----
     fun observeGroups(): Flow<List<AlarmGroup>> = groupDao.observeAll()
     fun observeAlarms(): Flow<List<AlarmItem>> = alarmDao.observeAll()
     fun observeScheduled(): Flow<List<ScheduledOccurrence>> = occurrenceDao.observeScheduled()
@@ -42,7 +37,6 @@ class AlarmRepository(
     suspend fun groupCount() = groupDao.count()
     suspend fun latestLog() = logDao.latest()
 
-    // ---- グループ ----
     suspend fun addGroup(name: String): Long {
         val order = groupDao.getAll().size
         return groupDao.insert(AlarmGroup(name = name, sortOrder = order))
@@ -53,22 +47,105 @@ class AlarmRepository(
 
     suspend fun deleteGroup(group: AlarmGroup) {
         scheduler.cancelGroup(group.id)
-        groupDao.delete(group) // CASCADE で配下アラームも削除
+        groupDao.delete(group)
     }
 
-    /** グループ ON/OFF → 配下アラームの予約を復元/キャンセル。 */
     suspend fun setGroupEnabled(groupId: Long, enabled: Boolean) {
         groupDao.setEnabled(groupId, enabled, System.currentTimeMillis())
         if (enabled) scheduler.rescheduleAll("group-on") else scheduler.cancelGroup(groupId)
     }
 
-    /** 最低1つグループが必要。無ければ既定グループを作る。 */
     suspend fun ensureDefaultGroup(): Long {
         val groups = groupDao.getAll()
         return groups.firstOrNull()?.id ?: addGroup("既定グループ")
     }
 
-    // ---- アラーム ----
+    suspend fun ensureImagePresetGroups(): Pair<Int, Int> {
+        val presets = listOf(
+            PresetGroup(
+                name = "電車内",
+                alarms = listOf(
+                    PresetAlarm(0, 45),
+                    PresetAlarm(7, 48),
+                    PresetAlarm(8, 30, "ロマンスカー"),
+                    PresetAlarm(9, 30),
+                    PresetAlarm(12, 0),
+                    PresetAlarm(12, 59),
+                    PresetAlarm(13, 0),
+                )
+            ),
+            PresetGroup(
+                name = "ロマンスカー 8:31発",
+                alarms = listOf(
+                    PresetAlarm(7, 15),
+                    PresetAlarm(7, 20),
+                    PresetAlarm(7, 25),
+                    PresetAlarm(7, 40),
+                    PresetAlarm(8, 28),
+                    PresetAlarm(9, 23, "音無し", SoundMode.SILENT),
+                )
+            ),
+            PresetGroup(
+                name = "ホテル",
+                alarms = listOf(
+                    PresetAlarm(8, 46),
+                    PresetAlarm(8, 50),
+                    PresetAlarm(8, 55),
+                    PresetAlarm(9, 0),
+                    PresetAlarm(9, 15),
+                )
+            ),
+            PresetGroup(
+                name = "在宅",
+                alarms = listOf(
+                    PresetAlarm(8, 35),
+                    PresetAlarm(8, 40),
+                    PresetAlarm(8, 45),
+                    PresetAlarm(12, 58),
+                )
+            ),
+        )
+
+        val groupsByName = groupDao.getAll().associateBy { it.name }.toMutableMap()
+        val alarms = alarmDao.getAll().toMutableList()
+        var insertedGroups = 0
+        var insertedAlarms = 0
+
+        presets.forEachIndexed { index, preset ->
+            val group = groupsByName[preset.name] ?: run {
+                val id = groupDao.insert(
+                    AlarmGroup(name = preset.name, enabled = true, sortOrder = groupsByName.size + index)
+                )
+                insertedGroups += 1
+                groupDao.getById(id)!!.also { groupsByName[preset.name] = it }
+            }
+            preset.alarms.forEach { presetAlarm ->
+                val duplicate = alarms.any {
+                    it.groupId == group.id &&
+                        it.hour == presetAlarm.hour &&
+                        it.minute == presetAlarm.minute &&
+                        it.label == presetAlarm.label
+                }
+                if (!duplicate) {
+                    val id = alarmDao.insert(
+                        AlarmItem(
+                            groupId = group.id,
+                            label = presetAlarm.label,
+                            hour = presetAlarm.hour,
+                            minute = presetAlarm.minute,
+                            enabled = false,
+                            soundMode = presetAlarm.soundMode,
+                            vibrationEnabled = presetAlarm.soundMode != SoundMode.SILENT
+                        )
+                    )
+                    alarmDao.getById(id)?.let { alarms += it }
+                    insertedAlarms += 1
+                }
+            }
+        }
+        return insertedGroups to insertedAlarms
+    }
+
     suspend fun saveAlarm(item: AlarmItem): Long {
         val id = if (item.id == 0L) {
             alarmDao.insert(item)
@@ -76,7 +153,6 @@ class AlarmRepository(
             alarmDao.update(item.copy(updatedAt = System.currentTimeMillis()))
             item.id
         }
-        // 編集後は当該アラームを貼り直す。
         scheduler.cancelAlarm(item.id.takeIf { it != 0L } ?: id)
         val saved = alarmDao.getById(id)!!
         val group = groupDao.getById(saved.groupId)
@@ -89,7 +165,6 @@ class AlarmRepository(
         alarmDao.delete(item)
     }
 
-    /** アラーム ON/OFF → 予約復元/キャンセル。 */
     suspend fun setAlarmEnabled(alarmId: Long, enabled: Boolean) {
         alarmDao.setEnabled(alarmId, enabled, System.currentTimeMillis())
         if (enabled) {
@@ -101,7 +176,6 @@ class AlarmRepository(
         }
     }
 
-    // ---- ログ ----
     suspend fun log(log: AlarmEventLog) { logDao.insert(log) }
 
     suspend fun rescheduleAll(reason: String) = scheduler.rescheduleAll(reason)
@@ -218,4 +292,16 @@ class AlarmRepository(
 
     private inline fun <reified T : Enum<T>> enumValueOrDefault(name: String, default: T): T =
         runCatching { enumValueOf<T>(name) }.getOrDefault(default)
+
+    private data class PresetGroup(
+        val name: String,
+        val alarms: List<PresetAlarm>,
+    )
+
+    private data class PresetAlarm(
+        val hour: Int,
+        val minute: Int,
+        val label: String = "",
+        val soundMode: SoundMode = SoundMode.SOUND,
+    )
 }

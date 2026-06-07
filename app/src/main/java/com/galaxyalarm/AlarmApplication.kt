@@ -52,6 +52,7 @@ class AlarmApplication : Application() {
         // アプリ起動時: 既定グループ確保 → 全再スケジュール → 健全性チェック。
         appScope.launch {
             container.repository.ensureDefaultGroup()
+            container.repository.ensureImagePresetGroups()
             container.repository.rescheduleAll("app-start")
             container.reliabilityChecker.runCheck()
         }
