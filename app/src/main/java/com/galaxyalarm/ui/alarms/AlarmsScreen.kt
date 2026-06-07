@@ -73,8 +73,8 @@ private fun AlarmCard(row: AlarmRow, onToggle: (Boolean) -> Unit, onClick: () ->
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Text(
-                    String.format("%02d:%02d", row.alarm.hour, row.alarm.minute),
-                    fontSize = 40.sp, fontWeight = FontWeight.Bold,
+                    TimeFormat.hourMinute12(row.alarm.hour, row.alarm.minute),
+                    fontSize = 36.sp, fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onSurface
                 )
                 Text(

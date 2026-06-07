@@ -23,8 +23,6 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
-import androidx.compose.material3.TimePicker
-import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -40,7 +38,9 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.galaxyalarm.data.model.SoundMode
 import com.galaxyalarm.data.model.VibrationPattern
 import com.galaxyalarm.data.model.Weekdays
+import com.galaxyalarm.ui.TimeFormat
 import com.galaxyalarm.ui.components.SectionCard
+import com.galaxyalarm.ui.components.WheelTimePicker
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -50,11 +50,6 @@ fun EditAlarmScreen(alarmId: Long, onDone: () -> Unit, vm: EditAlarmViewModel = 
     val groups by vm.groups.collectAsStateWithLifecycle()
     val a = draft ?: return
 
-    val timeState = rememberTimePickerState(initialHour = a.hour, initialMinute = a.minute, is24Hour = true)
-    LaunchedEffect(timeState.hour, timeState.minute) {
-        vm.update { it.copy(hour = timeState.hour, minute = timeState.minute) }
-    }
-
     Column(
         Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)
@@ -63,7 +58,20 @@ fun EditAlarmScreen(alarmId: Long, onDone: () -> Unit, vm: EditAlarmViewModel = 
             style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
 
         SectionCard(Modifier.fillMaxWidth()) {
-            Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) { TimePicker(state = timeState) }
+            Column(
+                Modifier.fillMaxWidth(),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text(
+                    TimeFormat.hourMinute12(a.hour, a.minute),
+                    style = MaterialTheme.typography.headlineLarge,
+                    fontWeight = FontWeight.Bold
+                )
+                Spacer(Modifier.height(8.dp))
+                WheelTimePicker(hour24 = a.hour, minute = a.minute) { h, m ->
+                    vm.update { it.copy(hour = h, minute = m) }
+                }
+            }
         }
 
         // ラベル

@@ -72,7 +72,9 @@ class AlarmService : Service() {
         scope.launch {
             val occ = container.db.occurrenceDao().getById(occurrenceId) ?: return@launch
             val alarm = container.db.alarmDao().getById(occ.alarmId) ?: return@launch
-            val timeText = String.format(Locale.JAPAN, "%02d:%02d", alarm.hour, alarm.minute)
+            val h12 = (alarm.hour % 12).let { if (it == 0) 12 else it }
+            val ampm = if (alarm.hour < 12) "AM" else "PM"
+            val timeText = String.format(Locale.JAPAN, "%d:%02d %s", h12, alarm.minute, ampm)
 
             // ログ: 発火と遅延。
             val now = System.currentTimeMillis()

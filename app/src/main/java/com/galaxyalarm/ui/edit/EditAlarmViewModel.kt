@@ -23,7 +23,13 @@ class EditAlarmViewModel(app: Application) : AndroidViewModel(app) {
             repo.getAlarm(alarmId)
         } else {
             val gid = repo.ensureDefaultGroup()
-            AlarmItem(groupId = gs.firstOrNull()?.id ?: gid, hour = 7, minute = 0)
+            // 新規追加時は現在時刻を初期値にする。
+            val now = java.util.Calendar.getInstance()
+            AlarmItem(
+                groupId = gs.firstOrNull()?.id ?: gid,
+                hour = now.get(java.util.Calendar.HOUR_OF_DAY),
+                minute = now.get(java.util.Calendar.MINUTE)
+            )
         }
     }
 
