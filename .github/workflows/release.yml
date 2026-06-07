@@ -1,12 +1,18 @@
 name: release
 
-# タグ (v1.0.0 等) を push すると release APK をビルドし GitHub Releases に添付する。
+# タグ (v1.0.0 等) を push するか、手動実行(version 入力)で
+# 署名済み release APK をビルドし GitHub Releases に添付する。
 # スマホのブラウザから直接 APK をダウンロード→インストールできる(手動転送不要)。
 on:
   push:
     tags:
       - "v*"
   workflow_dispatch:
+    inputs:
+      version:
+        description: "リリースタグ名 (例: v1.0.0)"
+        required: true
+        default: "v1.0.0"
 
 permissions:
   contents: write
@@ -16,6 +22,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      - name: Determine tag
+        id: tag
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "name=${{ github.event.inputs.version }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "name=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -40,15 +55,18 @@ jobs:
       - name: Rename APK
         run: |
           mkdir -p dist
-          cp app/build/outputs/apk/release/app-release.apk "dist/GalaxyAlarm-${GITHUB_REF_NAME}.apk"
+          cp app/build/outputs/apk/release/app-release.apk "dist/GalaxyAlarm-${{ steps.tag.outputs.name }}.apk"
 
       - name: Publish to GitHub Releases
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ steps.tag.outputs.name }}
+          name: Galaxy アラーム ${{ steps.tag.outputs.name }}
           files: dist/*.apk
           generate_release_notes: true
           body: |
-            Galaxy アラーム ${{ github.ref_name }}
+            Galaxy アラーム ${{ steps.tag.outputs.name }}
 
             スマホのブラウザでこのページを開き、下の `GalaxyAlarm-*.apk` をタップしてインストールしてください。
-            初回は「提供元不明のアプリ」を許可する必要があります。
+            初回は「提供元不明のアプリ」のインストール許可が必要です。
+            インストール後、アプリ内「信頼性チェック」で「アラームとリマインダー」権限とバッテリー最適化除外を設定してください。
