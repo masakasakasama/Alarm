@@ -34,6 +34,14 @@ jobs:
       - name: Unit tests + assemble debug & release APK
         run: ./gradlew testDebugUnitTest assembleDebug assembleRelease --no-daemon --stacktrace
 
+      - name: Determine app version
+        id: version
+        shell: bash
+        run: |
+          VERSION_NAME="$(grep -oP 'versionName\s*=\s*"\K[^"]+' app/build.gradle.kts)"
+          echo "name=$VERSION_NAME" >> "$GITHUB_OUTPUT"
+          echo "tag=v$VERSION_NAME" >> "$GITHUB_OUTPUT"
+
       - name: Upload debug APK artifact
         uses: actions/upload-artifact@v4
         with:
@@ -46,24 +54,23 @@ jobs:
           name: app-release
           path: app/build/outputs/apk/release/*.apk
 
-      # push 時(PR以外)に署名済み release APK を GitHub Releases に自動公開する。
-      # ワークフロー自身の GITHUB_TOKEN を使うため、タグ push なしでリリースできる。
       - name: Prepare release APK
         if: github.event_name == 'push'
         run: |
           mkdir -p dist
-          cp app/build/outputs/apk/release/app-release.apk dist/GalaxyAlarm-v1.0.0.apk
+          cp app/build/outputs/apk/release/app-release.apk "dist/GalaxyAlarm-${{ steps.version.outputs.tag }}.apk"
 
       - name: Publish to GitHub Releases
         if: github.event_name == 'push'
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v1.0.0
-          name: Galaxy アラーム v1.0.0
+          tag_name: ${{ steps.version.outputs.tag }}
+          name: Galaxy Alarm ${{ steps.version.outputs.tag }}
           files: dist/*.apk
+          generate_release_notes: true
           body: |
-            Galaxy アラーム v1.0.0(自動ビルド)
+            Galaxy Alarm ${{ steps.version.outputs.tag }}
 
-            スマホのブラウザでこのページを開き、下の `GalaxyAlarm-v1.0.0.apk` をタップしてインストールしてください。
-            初回は「提供元不明のアプリ」のインストール許可が必要です。
-            インストール後、アプリ内「信頼性チェック」で「アラームとリマインダー」権限とバッテリー最適化除外を必ず設定してください。
+            APK: GalaxyAlarm-${{ steps.version.outputs.tag }}.apk
+
+            スマホのブラウザでこのページを開き、APKをダウンロードしてインストールしてください。

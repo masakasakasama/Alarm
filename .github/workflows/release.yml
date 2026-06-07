@@ -1,8 +1,5 @@
 name: release
 
-# タグ (v1.0.0 等) を push するか、手動実行(version 入力)で
-# 署名済み release APK をビルドし GitHub Releases に添付する。
-# スマホのブラウザから直接 APK をダウンロード→インストールできる(手動転送不要)。
 on:
   push:
     tags:
@@ -10,9 +7,9 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "リリースタグ名 (例: v1.0.0)"
+        description: "Release tag, for example v1.1.0"
         required: true
-        default: "v1.0.0"
+        default: "v1.1.0"
 
 permissions:
   contents: write
@@ -49,7 +46,7 @@ jobs:
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
 
-      - name: Assemble release APK (signed)
+      - name: Assemble release APK
         run: ./gradlew assembleRelease --no-daemon --stacktrace
 
       - name: Rename APK
@@ -61,12 +58,12 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.tag.outputs.name }}
-          name: Galaxy アラーム ${{ steps.tag.outputs.name }}
+          name: Galaxy Alarm ${{ steps.tag.outputs.name }}
           files: dist/*.apk
           generate_release_notes: true
           body: |
-            Galaxy アラーム ${{ steps.tag.outputs.name }}
+            Galaxy Alarm ${{ steps.tag.outputs.name }}
 
-            スマホのブラウザでこのページを開き、下の `GalaxyAlarm-*.apk` をタップしてインストールしてください。
-            初回は「提供元不明のアプリ」のインストール許可が必要です。
-            インストール後、アプリ内「信頼性チェック」で「アラームとリマインダー」権限とバッテリー最適化除外を設定してください。
+            APK: GalaxyAlarm-${{ steps.tag.outputs.name }}.apk
+
+            スマホのブラウザでこのページを開き、APKをダウンロードしてインストールしてください。
