@@ -7,23 +7,29 @@
 
 ## 0. いまの状況サマリ(最重要・まずここを読む)
 
-- **アプリ本体は実装完了**し、ブランチ `claude/galaxy-alarm-app-F5YCQ` に **push 済み**(作業ツリーはクリーン)。
-- **コンパイルエラーは修正済み**。初回CIで出た3件を直して再push済み(詳細は §6)。
-- **APK のビルド検証は CI(GitHub Actions)で実施中**。開発コンテナには Android SDK が無く、
-  外部(dl.google.com)もネットワーク遮断のためローカルビルド不可。CI が唯一のビルド経路。
-- 直近のCIランは **GitHub ホストランナーが非常に遅く(無料枠混雑)**、ジョブが長時間 running のまま。
-  これは**コードではなくCIインフラ側**(ユニットテストは純JUnitで停止しようがない)。
+- **✅ 完成・ビルド成功・APK公開済み**。アプリ本体は実装完了し、ブランチ
+  `claude/galaxy-alarm-app-F5YCQ` に push 済み。CI(GitHub Actions)で **ビルド成功**を確認。
+- **📲 ダウンロード(スマホでそのまま開いてインストール可)**:
+  - Release ページ: https://github.com/masakasakasama/Alarm/releases/tag/v1.0.0
+  - APK 直リンク: https://github.com/masakasakasama/Alarm/releases/download/v1.0.0/GalaxyAlarm-v1.0.0.apk
+  - 署名済み release APK(約 11.9MB、applicationId `com.galaxyalarm`)。
+- **自動公開の仕組み**: `build.yml` が push のたびに debug+release をビルドし、
+  release APK を **GitHub Releases (タグ v1.0.0) に自動アップロード**する。
+  (このセッションのトークンは「タグpush」「workflow手動実行」が403で不可だったため、
+   ワークフロー自身の `GITHUB_TOKEN` で公開する方式にした。)
+
+### インストール手順(ユーザー向け)
+1. スマホのブラウザで上記 Release ページを開く。
+2. `GalaxyAlarm-v1.0.0.apk` をタップしてダウンロード。
+3. 「提供元不明のアプリ」のインストールを許可してインストール。
+4. アプリ内「信頼性チェック」→「アラームとリマインダー」権限を許可、バッテリー最適化を除外。
 
 ### 次の作業者が最初にやること
-1. GitHub の Actions タブで `build` ワークフローの最新ランを確認。
-   - 緑なら成功。`app-debug` アーティファクト(debug APK)がダウンロードできる。
-2. もし古いランが詰まっていたら、最新コミットで **Re-run** するか、空コミットでpushして再実行。
-3. **配布用APKを作る**: タグを打つと `release` ワークフローが署名APKを GitHub Releases に添付する。
-   ```bash
-   git tag v1.0.0
-   git push origin v1.0.0
-   ```
-   → Releases に `GalaxyAlarm-v1.0.0.apk` が出る。スマホのブラウザでDL→インストール。
+1. **実機(Galaxy)で鳴動テスト**(§9 の表、README の手動テスト手順)。これが唯一の残作業。
+2. バージョンを上げたいとき: `app/build.gradle.kts` の versionName を変更 → push すれば
+   `build.yml` が自動で release を更新(タグ名は固定 v1.0.0。versionedにしたいなら build.yml の
+   `tag_name` を versionName 参照に変更)。
+3. 注意: APK更新時は同一署名・同一 applicationId のため**上書きインストール可**(アンインストール不要)。
 
 ---
 
