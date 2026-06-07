@@ -38,7 +38,7 @@ class EditAlarmViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun save(onDone: () -> Unit) = viewModelScope.launch {
-        draft.value?.let { repo.saveAlarm(it) }
+        draft.value?.let { repo.saveAlarm(it.copy(enabled = true)) }
         onDone()
     }
 
