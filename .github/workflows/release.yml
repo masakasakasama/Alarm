@@ -22,6 +22,7 @@ jobs:
         with:
           distribution: temurin
           java-version: "17"
+          cache: gradle
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
@@ -34,7 +35,7 @@ jobs:
         run: chmod +x gradlew
 
       - name: Assemble release APK (signed)
-        run: ./gradlew assembleRelease --stacktrace
+        run: ./gradlew assembleRelease --no-daemon --stacktrace
 
       - name: Rename APK
         run: |
