@@ -6,6 +6,7 @@ import androidx.compose.material.icons.filled.Alarm
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.HealthAndSafety
 import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
@@ -23,6 +24,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.galaxyalarm.ui.alarms.AlarmsScreen
+import com.galaxyalarm.ui.clock.ClockToolsScreen
 import com.galaxyalarm.ui.edit.EditAlarmScreen
 import com.galaxyalarm.ui.groups.GroupsScreen
 import com.galaxyalarm.ui.home.HomeScreen
@@ -34,6 +36,7 @@ private data class Tab(val route: String, val label: String, val icon: ImageVect
 
 private val tabs = listOf(
     Tab("home", "ホーム", Icons.Filled.Home),
+    Tab("clock", "時計", Icons.Filled.Schedule),
     Tab("groups", "グループ", Icons.Filled.Folder),
     Tab("alarms", "アラーム", Icons.Filled.Alarm),
     Tab("reliability", "信頼性", Icons.Filled.HealthAndSafety),
@@ -46,7 +49,6 @@ fun AppNavigation() {
     val mainVm: MainViewModel = viewModel()
     val backStack by navController.currentBackStackEntryAsState()
     val currentRoute = backStack?.destination?.route
-
     val showBar = currentRoute in tabs.map { it.route }
 
     Scaffold(
@@ -57,10 +59,14 @@ fun AppNavigation() {
                         NavigationBarItem(
                             selected = currentRoute == tab.route,
                             onClick = {
-                                navController.navigate(tab.route) {
-                                    popUpTo(navController.graph.findStartDestination().id) { saveState = true }
-                                    launchSingleTop = true
-                                    restoreState = true
+                                if (currentRoute != tab.route) {
+                                    navController.navigate(tab.route) {
+                                        popUpTo(navController.graph.findStartDestination().id) {
+                                            saveState = false
+                                        }
+                                        launchSingleTop = true
+                                        restoreState = false
+                                    }
                                 }
                             },
                             icon = { Icon(tab.icon, contentDescription = tab.label) },
@@ -77,16 +83,21 @@ fun AppNavigation() {
             modifier = Modifier.padding(padding)
         ) {
             composable("home") {
-                HomeScreen(mainVm,
+                HomeScreen(
+                    vm = mainVm,
                     onOpenReliability = { navController.navigate("reliability") },
                     onOpenAlarms = { navController.navigate("alarms") },
-                    onAddAlarm = { navController.navigate("edit/0") })
+                    onAddAlarm = { navController.navigate("edit/0") }
+                )
             }
+            composable("clock") { ClockToolsScreen() }
             composable("groups") { GroupsScreen(mainVm) }
             composable("alarms") {
-                AlarmsScreen(mainVm,
+                AlarmsScreen(
+                    vm = mainVm,
                     onAddAlarm = { navController.navigate("edit/0") },
-                    onEditAlarm = { id -> navController.navigate("edit/$id") })
+                    onEditAlarm = { id -> navController.navigate("edit/$id") }
+                )
             }
             composable("reliability") {
                 ReliabilityScreen(mainVm, onOpenLog = { navController.navigate("log") })
