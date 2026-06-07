@@ -104,6 +104,15 @@ class AlarmRepository(
                     PresetAlarm(12, 58),
                 )
             ),
+            PresetGroup(
+                name = "午前在宅",
+                alarms = listOf(
+                    PresetAlarm(8, 15),
+                    PresetAlarm(8, 20),
+                    PresetAlarm(8, 25),
+                    PresetAlarm(8, 30),
+                )
+            ),
         )
 
         val groupsByName = groupDao.getAll().associateBy { it.name }.toMutableMap()
