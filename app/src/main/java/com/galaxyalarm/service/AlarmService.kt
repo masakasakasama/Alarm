@@ -72,7 +72,7 @@ class AlarmService : Service() {
         scope.launch {
             val occ = container.db.occurrenceDao().getById(occurrenceId) ?: return@launch
             val alarm = container.db.alarmDao().getById(occ.alarmId) ?: return@launch
-            val timeText = String.format(Locale.JP, "%02d:%02d", alarm.hour, alarm.minute)
+            val timeText = String.format(Locale.JAPAN, "%02d:%02d", alarm.hour, alarm.minute)
 
             // ログ: 発火と遅延。
             val now = System.currentTimeMillis()
@@ -230,7 +230,7 @@ class AlarmService : Service() {
 
     companion object {
         private const val TAG = "AlarmService"
-        private val timeFmt = SimpleDateFormat("HH:mm", Locale.JP)
+        private val timeFmt = SimpleDateFormat("HH:mm", Locale.JAPAN)
         fun fmt(t: Long) = timeFmt.format(Date(t))
     }
 }

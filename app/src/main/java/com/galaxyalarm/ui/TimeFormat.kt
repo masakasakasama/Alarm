@@ -11,7 +11,7 @@ object TimeFormat {
         if (millis == null) return "—"
         val c = Calendar.getInstance().apply { timeInMillis = millis }
         val today = Calendar.getInstance().apply { timeInMillis = now }
-        val hm = String.format(Locale.JP, "%02d:%02d", c.get(Calendar.HOUR_OF_DAY), c.get(Calendar.MINUTE))
+        val hm = String.format(Locale.JAPAN, "%02d:%02d", c.get(Calendar.HOUR_OF_DAY), c.get(Calendar.MINUTE))
         val dayDiff = dayOfEpoch(c) - dayOfEpoch(today)
         val prefix = when (dayDiff) {
             0L -> "今日"
@@ -19,7 +19,7 @@ object TimeFormat {
             2L -> "明後日"
             else -> {
                 val wd = WD[c.get(Calendar.DAY_OF_WEEK) - 1]
-                String.format(Locale.JP, "%d/%d(%s)", c.get(Calendar.MONTH) + 1, c.get(Calendar.DAY_OF_MONTH), wd)
+                String.format(Locale.JAPAN, "%d/%d(%s)", c.get(Calendar.MONTH) + 1, c.get(Calendar.DAY_OF_MONTH), wd)
             }
         }
         return "$prefix $hm"
@@ -41,13 +41,13 @@ object TimeFormat {
 
     fun clock(millis: Long): String {
         val c = Calendar.getInstance().apply { timeInMillis = millis }
-        return String.format(Locale.JP, "%02d:%02d", c.get(Calendar.HOUR_OF_DAY), c.get(Calendar.MINUTE))
+        return String.format(Locale.JAPAN, "%02d:%02d", c.get(Calendar.HOUR_OF_DAY), c.get(Calendar.MINUTE))
     }
 
     fun dateTime(millis: Long): String {
         val c = Calendar.getInstance().apply { timeInMillis = millis }
         return String.format(
-            Locale.JP, "%d/%02d/%02d %02d:%02d",
+            Locale.JAPAN, "%d/%02d/%02d %02d:%02d",
             c.get(Calendar.YEAR), c.get(Calendar.MONTH) + 1, c.get(Calendar.DAY_OF_MONTH),
             c.get(Calendar.HOUR_OF_DAY), c.get(Calendar.MINUTE)
         )
