@@ -108,14 +108,14 @@ class AlarmScheduler(
                 )
             }
             true
-        } catch (e: SecurityException) {
+        } catch (e: Exception) {
             occurrenceDao.setStatus(occ.id, OccurrenceStatus.FAILED, System.currentTimeMillis())
             logDao.insert(
                 AlarmEventLog(
                     alarmId = alarmId, groupId = groupId,
                     scheduledAtMillis = triggerAt, firedAtMillis = null, delayMs = null,
                     result = EventResult.FAILED_TO_SCHEDULE,
-                    message = "SecurityException: ${e.message}"
+                    message = "${e::class.java.simpleName}: ${e.message}"
                 )
             )
             false

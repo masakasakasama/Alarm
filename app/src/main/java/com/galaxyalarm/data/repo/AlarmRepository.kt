@@ -200,7 +200,10 @@ class AlarmRepository(
 
     suspend fun log(log: AlarmEventLog) { logDao.insert(log) }
 
-    suspend fun rescheduleAll(reason: String) = scheduler.rescheduleAll(reason)
+    suspend fun rescheduleAll(reason: String) {
+        enableGroupsForEnabledAlarms()
+        scheduler.rescheduleAll(reason)
+    }
 
     suspend fun exportBackupJson(): String {
         val groups = groupDao.getAll()
@@ -310,6 +313,21 @@ class AlarmRepository(
         }
         rescheduleAll("github-backup-restore")
         return insertedGroups to insertedAlarms
+    }
+
+    private suspend fun enableGroupsForEnabledAlarms() {
+        val groups = groupDao.getAll().associateBy { it.id }
+        val enabledGroupIds = alarmDao.getAll()
+            .filter { it.enabled }
+            .map { it.groupId }
+            .toSet()
+        val now = System.currentTimeMillis()
+        enabledGroupIds.forEach { groupId ->
+            val group = groups[groupId] ?: return@forEach
+            if (!group.enabled) {
+                groupDao.setEnabled(group.id, true, now)
+            }
+        }
     }
 
     private suspend fun enableGroupForAlarm(groupId: Long) {

@@ -23,7 +23,7 @@ class ScheduleHealthWorker(
         val reason = inputData.getString(KEY_REASON) ?: "periodic-health"
         return try {
             var report = app.container.reliabilityChecker.runCheck()
-            if (report.hasMissingFutureSchedule && app.container.permissions.canScheduleExactAlarms()) {
+            if (report.hasRepairableScheduleProblem && app.container.permissions.canScheduleExactAlarms()) {
                 report = app.container.reliabilityChecker.repair(reason)
             }
             if (report.hasCritical) {

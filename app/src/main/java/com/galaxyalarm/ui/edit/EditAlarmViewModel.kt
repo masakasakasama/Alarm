@@ -22,16 +22,16 @@ class EditAlarmViewModel(app: Application) : AndroidViewModel(app) {
     val groups = MutableStateFlow<List<AlarmGroup>>(emptyList())
 
     fun load(alarmId: Long) = viewModelScope.launch {
+        val defaultGroupId = repo.ensureDefaultGroup()
         val gs = repo.getGroups()
         groups.value = gs
         draft.value = if (alarmId > 0) {
             repo.getAlarm(alarmId)?.withoutSilent()
         } else {
-            val gid = repo.ensureDefaultGroup()
             // 新規追加時は現在時刻を初期値にする。
             val now = java.util.Calendar.getInstance()
             AlarmItem(
-                groupId = gs.firstOrNull()?.id ?: gid,
+                groupId = gs.firstOrNull { it.id == defaultGroupId }?.id ?: defaultGroupId,
                 hour = now.get(java.util.Calendar.HOUR_OF_DAY),
                 minute = now.get(java.util.Calendar.MINUTE)
             )

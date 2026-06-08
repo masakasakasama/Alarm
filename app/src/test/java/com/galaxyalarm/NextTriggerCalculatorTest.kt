@@ -26,6 +26,12 @@ class NextTriggerCalculatorTest {
         assertEquals(cal(2026, 6, 8, 7, 30), next)
     }
 
+    @Test fun oneShot_sameMinute_firesSoon() {
+        val from = cal(2026, 6, 7, 8, 0) + 30_000
+        val next = NextTriggerCalculator.nextTrigger(8, 0, 0, from, TimeZone.getTimeZone("Asia/Tokyo"))
+        assertEquals(from + 10_000, next)
+    }
+
     @Test fun repeating_picksNextMatchingWeekday() {
         // 2026-06-07 は日曜。月曜のみ(bit0)に設定。
         val from = cal(2026, 6, 7, 9, 0)

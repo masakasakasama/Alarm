@@ -71,7 +71,10 @@ class AlarmService : Service() {
         acquireWakeLock()
         scope.launch {
             val occ = container.db.occurrenceDao().getById(occurrenceId) ?: return@launch
+            if (occ.status != OccurrenceStatus.SCHEDULED) return@launch
             val alarm = container.db.alarmDao().getById(occ.alarmId) ?: return@launch
+            val group = container.db.groupDao().getById(alarm.groupId) ?: return@launch
+            if (!alarm.enabled || !group.enabled) return@launch
             val h12 = (alarm.hour % 12).let { if (it == 0) 12 else it }
             val ampm = if (alarm.hour < 12) "AM" else "PM"
             val timeText = String.format(Locale.JAPAN, "%d:%02d %s", h12, alarm.minute, ampm)

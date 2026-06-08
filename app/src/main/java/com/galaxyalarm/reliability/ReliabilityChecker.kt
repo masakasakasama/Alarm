@@ -7,6 +7,7 @@ const val TITLE_EXACT_ALARM = "正確なアラーム権限"
 const val TITLE_NOTIFICATIONS = "通知権限"
 const val TITLE_BATTERY = "バッテリー最適化の除外"
 const val TITLE_FULL_SCREEN = "全画面通知"
+const val TITLE_ENABLED_ALARMS_IN_OFF_GROUPS = "OFFグループ内のONアラーム"
 const val TITLE_FUTURE_SCHEDULES = "有効アラームの未来予約"
 const val TITLE_REQUEST_CODES = "PendingIntent requestCode"
 const val TITLE_TRIGGER_CONSISTENCY = "次回鳴動時刻の整合"
@@ -24,6 +25,10 @@ data class ReliabilityReport(
     val hasCritical: Boolean get() = items.any { !it.ok && it.isCritical() }
     val hasMissingFutureSchedule: Boolean get() =
         items.any { it.title == TITLE_FUTURE_SCHEDULES && !it.ok }
+    val hasBlockedEnabledAlarms: Boolean get() =
+        items.any { it.title == TITLE_ENABLED_ALARMS_IN_OFF_GROUPS && !it.ok }
+    val hasRepairableScheduleProblem: Boolean get() =
+        hasMissingFutureSchedule || hasBlockedEnabledAlarms
 
     private fun CheckItem.isCritical(): Boolean =
         title in setOf(
@@ -31,6 +36,7 @@ data class ReliabilityReport(
             TITLE_NOTIFICATIONS,
             TITLE_BATTERY,
             TITLE_FULL_SCREEN,
+            TITLE_ENABLED_ALARMS_IN_OFF_GROUPS,
             TITLE_FUTURE_SCHEDULES,
             TITLE_REQUEST_CODES,
             TITLE_TRIGGER_CONSISTENCY,
@@ -83,6 +89,15 @@ class ReliabilityChecker(
         val groups = repo.getGroups().associateBy { it.id }
         val scheduled = repo.getAllScheduled()
         val now = System.currentTimeMillis()
+        val blockedByGroup = alarms.filter { alarm ->
+            alarm.enabled && groups[alarm.groupId]?.enabled == false
+        }
+        items += CheckItem(
+            TITLE_ENABLED_ALARMS_IN_OFF_GROUPS,
+            blockedByGroup.isEmpty(),
+            if (blockedByGroup.isEmpty()) "なし"
+            else "${blockedByGroup.size}件あります。修復でグループをONにします。"
+        )
         val enabledAlarms = alarms.filter { alarm ->
             alarm.enabled && groups[alarm.groupId]?.enabled == true
         }
