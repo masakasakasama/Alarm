@@ -91,10 +91,24 @@ fun AppNavigation() {
                 )
             }
             composable("clock") { ClockToolsScreen() }
-            composable("groups") { GroupsScreen(mainVm) }
+            composable("groups") {
+                GroupsScreen(
+                    vm = mainVm,
+                    onOpenGroup = { id -> navController.navigate("alarms/group/$id") }
+                )
+            }
             composable("alarms") {
                 AlarmsScreen(
                     vm = mainVm,
+                    onAddAlarm = { navController.navigate("edit/0") },
+                    onEditAlarm = { id -> navController.navigate("edit/$id") }
+                )
+            }
+            composable("alarms/group/{groupId}") { entry ->
+                val groupId = entry.arguments?.getString("groupId")?.toLongOrNull() ?: 0L
+                AlarmsScreen(
+                    vm = mainVm,
+                    groupId = groupId,
                     onAddAlarm = { navController.navigate("edit/0") },
                     onEditAlarm = { id -> navController.navigate("edit/$id") }
                 )

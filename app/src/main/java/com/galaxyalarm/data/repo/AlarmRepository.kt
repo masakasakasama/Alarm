@@ -51,7 +51,9 @@ class AlarmRepository(
     }
 
     suspend fun setGroupEnabled(groupId: Long, enabled: Boolean) {
-        groupDao.setEnabled(groupId, enabled, System.currentTimeMillis())
+        val now = System.currentTimeMillis()
+        groupDao.setEnabled(groupId, enabled, now)
+        alarmDao.setEnabledForGroup(groupId, enabled, now)
         if (enabled) scheduler.rescheduleAll("group-on") else scheduler.cancelGroup(groupId)
     }
 

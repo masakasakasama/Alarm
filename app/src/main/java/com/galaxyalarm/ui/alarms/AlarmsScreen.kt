@@ -32,8 +32,16 @@ import com.galaxyalarm.ui.components.SectionCard
 import com.galaxyalarm.ui.components.StatusPill
 
 @Composable
-fun AlarmsScreen(vm: MainViewModel, onAddAlarm: () -> Unit, onEditAlarm: (Long) -> Unit) {
-    val rows by vm.alarmRows.collectAsStateWithLifecycle()
+fun AlarmsScreen(
+    vm: MainViewModel,
+    onAddAlarm: () -> Unit,
+    onEditAlarm: (Long) -> Unit,
+    groupId: Long? = null,
+) {
+    val allRows by vm.alarmRows.collectAsStateWithLifecycle()
+    val groups by vm.groups.collectAsStateWithLifecycle()
+    val rows = if (groupId == null || groupId <= 0L) allRows else allRows.filter { it.alarm.groupId == groupId }
+    val title = groups.firstOrNull { it.id == groupId }?.name ?: "アラーム"
     val grouped = rows.groupBy { it.groupName }
 
     LazyColumn(
@@ -42,27 +50,37 @@ fun AlarmsScreen(vm: MainViewModel, onAddAlarm: () -> Unit, onEditAlarm: (Long) 
         contentPadding = PaddingValues(vertical = 16.dp)
     ) {
         item {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically) {
-                Text("アラーム", style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
-                TextButton(onClick = onAddAlarm) { Text("＋ 追加") }
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(title, style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
+                TextButton(onClick = onAddAlarm) { Text("+ 追加") }
             }
         }
         grouped.forEach { (groupName, list) ->
-            item(key = "h_$groupName") {
-                Text(groupName, style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.padding(top = 8.dp))
+            if (groupId == null || groupId <= 0L) {
+                item(key = "h_$groupName") {
+                    Text(
+                        groupName,
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.padding(top = 8.dp)
+                    )
+                }
             }
             items(list, key = { it.alarm.id }) { row ->
-                AlarmCard(row, onToggle = { vm.toggleAlarm(row.alarm, it) },
-                    onClick = { onEditAlarm(row.alarm.id) })
+                AlarmCard(
+                    row = row,
+                    onToggle = { vm.toggleAlarm(row.alarm, it) },
+                    onClick = { onEditAlarm(row.alarm.id) }
+                )
             }
         }
         if (rows.isEmpty()) item {
-            Text("アラームがありません。＋追加から登録してください。",
-                color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("アラームがありません。追加してください。", color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }
@@ -74,12 +92,12 @@ private fun AlarmCard(row: AlarmRow, onToggle: (Boolean) -> Unit, onClick: () ->
             Column(Modifier.weight(1f)) {
                 Text(
                     TimeFormat.hourMinute12(row.alarm.hour, row.alarm.minute),
-                    fontSize = 36.sp, fontWeight = FontWeight.Bold,
+                    fontSize = 36.sp,
+                    fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onSurface
                 )
                 Text(
-                    (if (row.alarm.label.isBlank()) "(無題)" else row.alarm.label) +
-                        " ・ " + Weekdays.label(row.alarm.weekdaysMask),
+                    row.alarm.label.ifBlank { "ラベルなし" } + " ・ " + Weekdays.label(row.alarm.weekdaysMask),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -87,14 +105,10 @@ private fun AlarmCard(row: AlarmRow, onToggle: (Boolean) -> Unit, onClick: () ->
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     SoundModePill(row.alarm.soundMode)
                     when {
-                        row.nextTriggerAt != null ->
-                            StatusPill(TimeFormat.nextTrigger(row.nextTriggerAt), PillLevel.OK)
-                        row.alarm.enabled && !row.groupEnabled ->
-                            StatusPill("グループOFF", PillLevel.WARN)
-                        !row.alarm.enabled ->
-                            StatusPill("OFF", PillLevel.WARN)
-                        else ->
-                            StatusPill("予約なし", PillLevel.DANGER)
+                        row.nextTriggerAt != null -> StatusPill(TimeFormat.nextTrigger(row.nextTriggerAt), PillLevel.OK)
+                        row.alarm.enabled && !row.groupEnabled -> StatusPill("グループOFF", PillLevel.WARN)
+                        !row.alarm.enabled -> StatusPill("OFF", PillLevel.WARN)
+                        else -> StatusPill("予約なし", PillLevel.DANGER)
                     }
                 }
             }
@@ -106,8 +120,8 @@ private fun AlarmCard(row: AlarmRow, onToggle: (Boolean) -> Unit, onClick: () ->
 @Composable
 private fun SoundModePill(mode: SoundMode) {
     when (mode) {
-        SoundMode.SOUND -> StatusPill("🔊 音あり", PillLevel.OK)
-        SoundMode.VIBRATE_ONLY -> StatusPill("📳 バイブのみ", PillLevel.WARN)
-        SoundMode.SILENT -> StatusPill("🔕 完全無音", PillLevel.WARN)
+        SoundMode.SOUND -> StatusPill("音あり", PillLevel.OK)
+        SoundMode.VIBRATE_ONLY -> StatusPill("バイブのみ", PillLevel.WARN)
+        SoundMode.SILENT -> StatusPill("完全無音", PillLevel.WARN)
     }
 }

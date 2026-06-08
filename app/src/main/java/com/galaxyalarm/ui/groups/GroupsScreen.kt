@@ -38,7 +38,7 @@ import com.galaxyalarm.ui.components.SectionCard
 import com.galaxyalarm.ui.components.StatusPill
 
 @Composable
-fun GroupsScreen(vm: MainViewModel) {
+fun GroupsScreen(vm: MainViewModel, onOpenGroup: (Long) -> Unit) {
     val rows by vm.groupRows.collectAsStateWithLifecycle()
     var showAdd by remember { mutableStateOf(false) }
     var renameTarget by remember { mutableStateOf<AlarmGroup?>(null) }
@@ -50,23 +50,32 @@ fun GroupsScreen(vm: MainViewModel) {
         contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 16.dp)
     ) {
         item {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically) {
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
                 Text("グループ", style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
-                TextButton(onClick = { showAdd = true }) { Text("＋ 追加") }
+                TextButton(onClick = { showAdd = true }) { Text("+ 追加") }
             }
         }
         items(rows, key = { it.group.id }) { row ->
-            GroupCard(row,
+            GroupCard(
+                row = row,
+                onOpen = { onOpenGroup(row.group.id) },
                 onToggle = { vm.toggleGroup(row.group, it) },
                 onRename = { renameTarget = row.group },
-                onDelete = { deleteTarget = row.group })
+                onDelete = { deleteTarget = row.group }
+            )
         }
-        if (rows.isEmpty()) item { Text("グループがありません。追加してください。",
-            color = MaterialTheme.colorScheme.onSurfaceVariant) }
+        if (rows.isEmpty()) item {
+            Text("グループがありません。追加してください。", color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
     }
 
-    if (showAdd) NameDialog("グループを追加", "", onConfirm = { vm.addGroup(it); showAdd = false }, onDismiss = { showAdd = false })
+    if (showAdd) {
+        NameDialog("グループを追加", "", onConfirm = { vm.addGroup(it); showAdd = false }, onDismiss = { showAdd = false })
+    }
     renameTarget?.let { g ->
         NameDialog("グループ名を変更", g.name, onConfirm = { vm.renameGroup(g, it); renameTarget = null }, onDismiss = { renameTarget = null })
     }
@@ -74,7 +83,7 @@ fun GroupsScreen(vm: MainViewModel) {
         AlertDialog(
             onDismissRequest = { deleteTarget = null },
             title = { Text("グループを削除") },
-            text = { Text("「${g.name}」と配下のアラームをすべて削除します。よろしいですか?") },
+            text = { Text("「${g.name}」と中のアラームをすべて削除します。") },
             confirmButton = { TextButton(onClick = { vm.deleteGroup(g); deleteTarget = null }) { Text("削除") } },
             dismissButton = { TextButton(onClick = { deleteTarget = null }) { Text("キャンセル") } }
         )
@@ -82,28 +91,41 @@ fun GroupsScreen(vm: MainViewModel) {
 }
 
 @Composable
-private fun GroupCard(row: GroupRow, onToggle: (Boolean) -> Unit, onRename: () -> Unit, onDelete: () -> Unit) {
-    SectionCard(modifier = Modifier.fillMaxWidth(), onClick = onRename) {
+private fun GroupCard(
+    row: GroupRow,
+    onOpen: () -> Unit,
+    onToggle: (Boolean) -> Unit,
+    onRename: () -> Unit,
+    onDelete: () -> Unit,
+) {
+    SectionCard(modifier = Modifier.fillMaxWidth(), onClick = onOpen) {
         Column {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     Text(row.group.name, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
-                    Text("有効 ${row.enabledCount} / 全 ${row.totalCount} 件",
+                    Text(
+                        "有効 ${row.enabledCount} / 全 ${row.totalCount} 件",
                         style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
                 Switch(checked = row.group.enabled, onCheckedChange = onToggle)
             }
             Spacer(Modifier.height(8.dp))
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically) {
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
                 if (row.group.enabled) {
-                    Text("次回 " + TimeFormat.nextTrigger(row.nextTriggerAt),
-                        style = MaterialTheme.typography.bodyMedium)
+                    Text("次回 " + TimeFormat.nextTrigger(row.nextTriggerAt), style = MaterialTheme.typography.bodyMedium)
                 } else {
                     StatusPill("OFF", PillLevel.WARN)
                 }
-                IconButton(onClick = onDelete) { Icon(Icons.Filled.Delete, contentDescription = "削除") }
+                Row {
+                    TextButton(onClick = onRename) { Text("名前") }
+                    IconButton(onClick = onDelete) { Icon(Icons.Filled.Delete, contentDescription = "削除") }
+                }
             }
         }
     }

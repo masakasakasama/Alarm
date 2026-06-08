@@ -45,6 +45,8 @@ interface AlarmItemDao {
     suspend fun getByGroup(groupId: Long): List<AlarmItem>
     @Query("UPDATE alarm_items SET enabled = :enabled, updatedAt = :now WHERE id = :id")
     suspend fun setEnabled(id: Long, enabled: Boolean, now: Long)
+    @Query("UPDATE alarm_items SET enabled = :enabled, updatedAt = :now WHERE groupId = :groupId")
+    suspend fun setEnabledForGroup(groupId: Long, enabled: Boolean, now: Long)
     @Query("SELECT COUNT(*) FROM alarm_items WHERE groupId = :groupId AND enabled = 1")
     suspend fun enabledCountInGroup(groupId: Long): Int
     @Query("SELECT COUNT(*) FROM alarm_items")
