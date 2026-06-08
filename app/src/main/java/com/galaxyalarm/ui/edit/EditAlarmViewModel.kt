@@ -8,6 +8,7 @@ import com.galaxyalarm.backup.GitHubBackupClient
 import com.galaxyalarm.backup.GitHubBackupStore
 import com.galaxyalarm.data.entity.AlarmGroup
 import com.galaxyalarm.data.entity.AlarmItem
+import com.galaxyalarm.widget.NextAlarmWidgetProvider
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 
@@ -42,14 +43,20 @@ class EditAlarmViewModel(app: Application) : AndroidViewModel(app) {
 
     fun save(onDone: () -> Unit) = viewModelScope.launch {
         draft.value?.let { repo.saveAlarm(it.copy(enabled = true)) }
+        refreshWidgets()
         backupIfConfigured()
         onDone()
     }
 
     fun delete(onDone: () -> Unit) = viewModelScope.launch {
         draft.value?.let { if (it.id > 0) repo.deleteAlarm(it) }
+        refreshWidgets()
         backupIfConfigured()
         onDone()
+    }
+
+    private fun refreshWidgets() {
+        runCatching { NextAlarmWidgetProvider.refresh(appContext) }
     }
 
     private suspend fun backupIfConfigured() {

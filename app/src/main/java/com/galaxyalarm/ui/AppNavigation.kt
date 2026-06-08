@@ -5,7 +5,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Alarm
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.HealthAndSafety
-import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Icon
@@ -27,7 +26,6 @@ import com.galaxyalarm.ui.alarms.AlarmsScreen
 import com.galaxyalarm.ui.clock.ClockToolsScreen
 import com.galaxyalarm.ui.edit.EditAlarmScreen
 import com.galaxyalarm.ui.groups.GroupsScreen
-import com.galaxyalarm.ui.home.HomeScreen
 import com.galaxyalarm.ui.log.EventLogScreen
 import com.galaxyalarm.ui.reliability.ReliabilityScreen
 import com.galaxyalarm.ui.settings.SettingsScreen
@@ -35,7 +33,6 @@ import com.galaxyalarm.ui.settings.SettingsScreen
 private data class Tab(val route: String, val label: String, val icon: ImageVector)
 
 private val tabs = listOf(
-    Tab("home", "ホーム", Icons.Filled.Home),
     Tab("clock", "時計", Icons.Filled.Schedule),
     Tab("groups", "グループ", Icons.Filled.Folder),
     Tab("alarms", "アラーム", Icons.Filled.Alarm),
@@ -48,49 +45,49 @@ fun AppNavigation() {
     val navController = rememberNavController()
     val mainVm: MainViewModel = viewModel()
     val backStack by navController.currentBackStackEntryAsState()
-    val currentRoute = backStack?.destination?.route
-    val showBar = currentRoute in tabs.map { it.route }
+    val currentRoute = backStack?.destination?.route ?: "clock"
+    val selectedRoute = when {
+        currentRoute.startsWith("alarms") -> "alarms"
+        currentRoute.startsWith("edit") -> "alarms"
+        currentRoute == "log" -> "settings"
+        else -> currentRoute
+    }
 
     Scaffold(
         bottomBar = {
-            if (showBar) {
-                NavigationBar {
-                    tabs.forEach { tab ->
-                        NavigationBarItem(
-                            selected = currentRoute == tab.route,
-                            onClick = {
-                                if (currentRoute != tab.route) {
-                                    navController.navigate(tab.route) {
-                                        popUpTo(navController.graph.findStartDestination().id) {
-                                            saveState = false
-                                        }
-                                        launchSingleTop = true
-                                        restoreState = false
+            NavigationBar {
+                tabs.forEach { tab ->
+                    NavigationBarItem(
+                        selected = selectedRoute == tab.route,
+                        onClick = {
+                            if (selectedRoute != tab.route) {
+                                navController.navigate(tab.route) {
+                                    popUpTo(navController.graph.findStartDestination().id) {
+                                        saveState = false
                                     }
+                                    launchSingleTop = true
+                                    restoreState = false
                                 }
-                            },
-                            icon = { Icon(tab.icon, contentDescription = tab.label) },
-                            label = { Text(tab.label) }
-                        )
-                    }
+                            }
+                        },
+                        icon = { Icon(tab.icon, contentDescription = tab.label) },
+                        label = { Text(tab.label) }
+                    )
                 }
             }
         }
     ) { padding ->
         NavHost(
             navController = navController,
-            startDestination = "home",
+            startDestination = "clock",
             modifier = Modifier.padding(padding)
         ) {
-            composable("home") {
-                HomeScreen(
+            composable("clock") {
+                ClockToolsScreen(
                     vm = mainVm,
-                    onOpenReliability = { navController.navigate("reliability") },
-                    onOpenAlarms = { navController.navigate("alarms") },
                     onAddAlarm = { navController.navigate("edit/0") }
                 )
             }
-            composable("clock") { ClockToolsScreen() }
             composable("groups") {
                 GroupsScreen(
                     vm = mainVm,
@@ -101,7 +98,8 @@ fun AppNavigation() {
                 AlarmsScreen(
                     vm = mainVm,
                     onAddAlarm = { navController.navigate("edit/0") },
-                    onEditAlarm = { id -> navController.navigate("edit/$id") }
+                    onEditAlarm = { id -> navController.navigate("edit/$id") },
+                    onOpenGroup = { id -> navController.navigate("alarms/group/$id") }
                 )
             }
             composable("alarms/group/{groupId}") { entry ->
@@ -110,7 +108,8 @@ fun AppNavigation() {
                     vm = mainVm,
                     groupId = groupId,
                     onAddAlarm = { navController.navigate("edit/0") },
-                    onEditAlarm = { id -> navController.navigate("edit/$id") }
+                    onEditAlarm = { id -> navController.navigate("edit/$id") },
+                    onOpenGroup = { id -> navController.navigate("alarms/group/$id") }
                 )
             }
             composable("reliability") {

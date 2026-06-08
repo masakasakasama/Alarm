@@ -76,15 +76,15 @@ fun GroupsScreen(vm: MainViewModel, onOpenGroup: (Long) -> Unit) {
     if (showAdd) {
         NameDialog("グループを追加", "", onConfirm = { vm.addGroup(it); showAdd = false }, onDismiss = { showAdd = false })
     }
-    renameTarget?.let { g ->
-        NameDialog("グループ名を変更", g.name, onConfirm = { vm.renameGroup(g, it); renameTarget = null }, onDismiss = { renameTarget = null })
+    renameTarget?.let { group ->
+        NameDialog("グループ名を変更", group.name, onConfirm = { vm.renameGroup(group, it); renameTarget = null }, onDismiss = { renameTarget = null })
     }
-    deleteTarget?.let { g ->
+    deleteTarget?.let { group ->
         AlertDialog(
             onDismissRequest = { deleteTarget = null },
             title = { Text("グループを削除") },
-            text = { Text("「${g.name}」と中のアラームをすべて削除します。") },
-            confirmButton = { TextButton(onClick = { vm.deleteGroup(g); deleteTarget = null }) { Text("削除") } },
+            text = { Text("「${group.name}」と中のアラームをすべて削除します。") },
+            confirmButton = { TextButton(onClick = { vm.deleteGroup(group); deleteTarget = null }) { Text("削除") } },
             dismissButton = { TextButton(onClick = { deleteTarget = null }) { Text("キャンセル") } }
         )
     }

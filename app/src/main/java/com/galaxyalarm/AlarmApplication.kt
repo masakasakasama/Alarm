@@ -9,6 +9,7 @@ import com.galaxyalarm.reliability.ReliabilityChecker
 import com.galaxyalarm.reliability.ReliabilityStore
 import com.galaxyalarm.reliability.ScheduleHealthWorker
 import com.galaxyalarm.scheduler.AlarmScheduler
+import com.galaxyalarm.widget.NextAlarmWidgetProvider
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -55,6 +56,7 @@ class AlarmApplication : Application() {
             container.repository.ensureImagePresetGroups()
             container.repository.rescheduleAll("app-start")
             container.reliabilityChecker.runCheck()
+            NextAlarmWidgetProvider.refresh(this@AlarmApplication)
         }
         // バックグラウンド定期チェック。
         ScheduleHealthWorker.schedule(this)

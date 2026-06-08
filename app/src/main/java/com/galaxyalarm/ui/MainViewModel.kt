@@ -11,6 +11,7 @@ import com.galaxyalarm.data.entity.AlarmItem
 import com.galaxyalarm.data.model.Weekdays
 import com.galaxyalarm.reliability.ReliabilityReport
 import com.galaxyalarm.scheduler.NextTriggerCalculator
+import com.galaxyalarm.widget.NextAlarmWidgetProvider
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -85,27 +86,32 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     fun repair() = viewModelScope.launch { report.value = container.reliabilityChecker.repair() }
 
     fun toggleGroup(group: AlarmGroup, enabled: Boolean) =
-        viewModelScope.launch { repo.setGroupEnabled(group.id, enabled); runCheck(); backupIfConfigured() }
+        viewModelScope.launch { repo.setGroupEnabled(group.id, enabled); refreshWidgets(); runCheck(); backupIfConfigured() }
 
-    fun addGroup(name: String) = viewModelScope.launch { repo.addGroup(name); backupIfConfigured() }
-    fun renameGroup(group: AlarmGroup, name: String) = viewModelScope.launch { repo.renameGroup(group, name); backupIfConfigured() }
-    fun deleteGroup(group: AlarmGroup) = viewModelScope.launch { repo.deleteGroup(group); runCheck(); backupIfConfigured() }
+    fun addGroup(name: String) = viewModelScope.launch { repo.addGroup(name); refreshWidgets(); backupIfConfigured() }
+    fun renameGroup(group: AlarmGroup, name: String) = viewModelScope.launch { repo.renameGroup(group, name); refreshWidgets(); backupIfConfigured() }
+    fun deleteGroup(group: AlarmGroup) = viewModelScope.launch { repo.deleteGroup(group); refreshWidgets(); runCheck(); backupIfConfigured() }
 
     fun toggleAlarm(alarm: AlarmItem, enabled: Boolean) =
-        viewModelScope.launch { repo.setAlarmEnabled(alarm.id, enabled); runCheck(); backupIfConfigured() }
+        viewModelScope.launch { repo.setAlarmEnabled(alarm.id, enabled); refreshWidgets(); runCheck(); backupIfConfigured() }
 
-    fun deleteAlarm(alarm: AlarmItem) = viewModelScope.launch { repo.deleteAlarm(alarm); runCheck(); backupIfConfigured() }
+    fun deleteAlarm(alarm: AlarmItem) = viewModelScope.launch { repo.deleteAlarm(alarm); refreshWidgets(); runCheck(); backupIfConfigured() }
 
     /** 権限付与後など、全再スケジュール。 */
-    fun rescheduleAll() = viewModelScope.launch { repo.rescheduleAll("ui-request"); runCheck() }
+    fun rescheduleAll() = viewModelScope.launch { repo.rescheduleAll("ui-request"); refreshWidgets(); runCheck() }
 
     suspend fun exportBackupJson(): String = repo.exportBackupJson()
 
     suspend fun mergeBackupJson(json: String): Pair<Int, Int> {
         val result = repo.mergeBackupJson(json)
+        refreshWidgets()
         runCheck()
         backupIfConfigured()
         return result
+    }
+
+    private fun refreshWidgets() {
+        runCatching { NextAlarmWidgetProvider.refresh(appContext) }
     }
 
     private suspend fun backupIfConfigured() {

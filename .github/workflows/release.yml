@@ -7,9 +7,9 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Release tag, for example v1.1.6"
+        description: "Release tag, for example v1.1.7"
         required: true
-        default: "v1.1.6"
+        default: "v1.1.7"
 
 permissions:
   contents: write
@@ -68,11 +68,11 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.tag.outputs.name }}
-          name: Galaxy Alarm ${{ steps.tag.outputs.name }}
+          name: Galaxy Clock ${{ steps.tag.outputs.name }}
           files: dist/*.apk
           generate_release_notes: true
           body: |
-            Galaxy Alarm ${{ steps.tag.outputs.name }}
+            Galaxy Clock ${{ steps.tag.outputs.name }}
 
             APK: GalaxyAlarm-${{ steps.tag.outputs.name }}.apk
 

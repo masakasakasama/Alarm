@@ -1,5 +1,5 @@
 <resources>
-    <string name="app_name">Galaxy アラーム</string>
+    <string name="app_name">Galaxy 時計</string>
     <string name="alarm_channel_name">アラーム鳴動</string>
     <string name="alarm_channel_desc">アラームの全画面通知</string>
     <string name="service_channel_name">アラーム実行中</string>
