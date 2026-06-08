@@ -51,6 +51,9 @@ class AlarmRepository(
     }
 
     suspend fun setGroupEnabled(groupId: Long, enabled: Boolean) {
+        val group = groupDao.getById(groupId)
+        if (group != null && isDefaultGroupName(group.name) && !enabled) return
+
         val now = System.currentTimeMillis()
         groupDao.setEnabled(groupId, enabled, now)
         alarmDao.setEnabledForGroup(groupId, enabled, now)
@@ -59,7 +62,12 @@ class AlarmRepository(
 
     suspend fun ensureDefaultGroup(): Long {
         val groups = groupDao.getAll()
-        return groups.firstOrNull()?.id ?: addGroup("既定グループ")
+        val default = groups.firstOrNull { isDefaultGroupName(it.name) }
+            ?: return addGroup(DEFAULT_GROUP_NAME)
+        if (!default.enabled || default.name != DEFAULT_GROUP_NAME) {
+            groupDao.update(default.copy(name = DEFAULT_GROUP_NAME, enabled = true, updatedAt = System.currentTimeMillis()))
+        }
+        return default.id
     }
 
     suspend fun ensureImagePresetGroups(): Pair<Int, Int> {
@@ -158,16 +166,19 @@ class AlarmRepository(
     }
 
     suspend fun saveAlarm(item: AlarmItem): Long {
-        val id = if (item.id == 0L) {
-            alarmDao.insert(item)
+        val normalized = item.withSafeSoundMode()
+        val id = if (normalized.id == 0L) {
+            alarmDao.insert(normalized)
         } else {
-            alarmDao.update(item.copy(updatedAt = System.currentTimeMillis()))
-            item.id
+            alarmDao.update(normalized.copy(updatedAt = System.currentTimeMillis()))
+            normalized.id
         }
-        scheduler.cancelAlarm(item.id.takeIf { it != 0L } ?: id)
+        scheduler.cancelAlarm(normalized.id.takeIf { it != 0L } ?: id)
         val saved = alarmDao.getById(id)!!
-        val group = groupDao.getById(saved.groupId)
-        if (saved.enabled && group?.enabled == true) scheduler.scheduleAlarm(saved)
+        if (saved.enabled) {
+            enableGroupForAlarm(saved.groupId)
+            scheduler.scheduleAlarm(saved)
+        }
         return id
     }
 
@@ -179,9 +190,9 @@ class AlarmRepository(
     suspend fun setAlarmEnabled(alarmId: Long, enabled: Boolean) {
         alarmDao.setEnabled(alarmId, enabled, System.currentTimeMillis())
         if (enabled) {
-            val a = alarmDao.getById(alarmId) ?: return
-            val g = groupDao.getById(a.groupId)
-            if (g?.enabled == true) scheduler.scheduleAlarm(a)
+            val alarm = alarmDao.getById(alarmId) ?: return
+            enableGroupForAlarm(alarm.groupId)
+            scheduler.scheduleAlarm(alarm)
         } else {
             scheduler.cancelAlarm(alarmId)
         }
@@ -199,32 +210,32 @@ class AlarmRepository(
             .put("schemaVersion", 1)
             .put("exportedAt", System.currentTimeMillis())
             .put("groups", JSONArray().apply {
-                groups.forEach { g ->
+                groups.forEach { group ->
                     put(JSONObject()
-                        .put("localId", g.id)
-                        .put("name", g.name)
-                        .put("enabled", g.enabled)
-                        .put("sortOrder", g.sortOrder))
+                        .put("localId", group.id)
+                        .put("name", group.name)
+                        .put("enabled", group.enabled)
+                        .put("sortOrder", group.sortOrder))
                 }
             })
             .put("alarms", JSONArray().apply {
-                alarms.forEach { a ->
+                alarms.forEach { alarm ->
                     put(JSONObject()
-                        .put("groupLocalId", a.groupId)
-                        .put("groupName", groupNames[a.groupId] ?: "")
-                        .put("label", a.label)
-                        .put("hour", a.hour)
-                        .put("minute", a.minute)
-                        .put("weekdaysMask", a.weekdaysMask)
-                        .put("enabled", a.enabled)
-                        .put("soundMode", a.soundMode.name)
-                        .put("ringtoneUri", a.ringtoneUri)
-                        .put("vibrationEnabled", a.vibrationEnabled)
-                        .put("vibrationPattern", a.vibrationPattern.name)
-                        .put("snoozeEnabled", a.snoozeEnabled)
-                        .put("snoozeMinutes", a.snoozeMinutes)
-                        .put("maxSnoozeCount", a.maxSnoozeCount)
-                        .put("autoStopMinutes", a.autoStopMinutes))
+                        .put("groupLocalId", alarm.groupId)
+                        .put("groupName", groupNames[alarm.groupId] ?: "")
+                        .put("label", alarm.label)
+                        .put("hour", alarm.hour)
+                        .put("minute", alarm.minute)
+                        .put("weekdaysMask", alarm.weekdaysMask)
+                        .put("enabled", alarm.enabled)
+                        .put("soundMode", alarm.soundMode.name)
+                        .put("ringtoneUri", alarm.ringtoneUri)
+                        .put("vibrationEnabled", alarm.vibrationEnabled)
+                        .put("vibrationPattern", alarm.vibrationPattern.name)
+                        .put("snoozeEnabled", alarm.snoozeEnabled)
+                        .put("snoozeMinutes", alarm.snoozeMinutes)
+                        .put("maxSnoozeCount", alarm.maxSnoozeCount)
+                        .put("autoStopMinutes", alarm.autoStopMinutes))
                 }
             })
             .toString()
@@ -239,15 +250,15 @@ class AlarmRepository(
         val groupsByName = groupDao.getAll().associateBy { it.name }.toMutableMap()
 
         for (i in 0 until groupsJson.length()) {
-            val g = groupsJson.getJSONObject(i)
-            val oldId = g.optLong("localId", 0L)
-            val name = g.optString("name").ifBlank { "既定グループ" }
+            val groupJson = groupsJson.getJSONObject(i)
+            val oldId = groupJson.optLong("localId", 0L)
+            val name = groupJson.optString("name").ifBlank { DEFAULT_GROUP_NAME }
             val local = groupsByName[name] ?: run {
                 val id = groupDao.insert(
                     AlarmGroup(
                         name = name,
-                        enabled = g.optBoolean("enabled", true),
-                        sortOrder = g.optInt("sortOrder", groupsByName.size)
+                        enabled = groupJson.optBoolean("enabled", true),
+                        sortOrder = groupJson.optInt("sortOrder", groupsByName.size)
                     )
                 )
                 insertedGroups += 1
@@ -259,15 +270,15 @@ class AlarmRepository(
         var insertedAlarms = 0
         val existingAlarms = alarmDao.getAll().toMutableList()
         for (i in 0 until alarmsJson.length()) {
-            val a = alarmsJson.getJSONObject(i)
-            val groupName = a.optString("groupName").ifBlank { "既定グループ" }
-            val groupId = groupIdMap[a.optLong("groupLocalId", 0L)]
+            val alarmJson = alarmsJson.getJSONObject(i)
+            val groupName = alarmJson.optString("groupName").ifBlank { DEFAULT_GROUP_NAME }
+            val groupId = groupIdMap[alarmJson.optLong("groupLocalId", 0L)]
                 ?: groupsByName[groupName]?.id
                 ?: ensureDefaultGroup()
-            val label = a.optString("label")
-            val hour = a.optInt("hour")
-            val minute = a.optInt("minute")
-            val weekdaysMask = a.optInt("weekdaysMask")
+            val label = alarmJson.optString("label")
+            val hour = alarmJson.optInt("hour")
+            val minute = alarmJson.optInt("minute")
+            val weekdaysMask = alarmJson.optInt("weekdaysMask")
             val duplicate = existingAlarms.any {
                 it.groupId == groupId &&
                     it.label == label &&
@@ -283,16 +294,16 @@ class AlarmRepository(
                 hour = hour,
                 minute = minute,
                 weekdaysMask = weekdaysMask,
-                enabled = a.optBoolean("enabled", true),
-                soundMode = enumValueOrDefault(a.optString("soundMode"), SoundMode.SOUND),
-                ringtoneUri = a.optString("ringtoneUri").ifBlank { null },
-                vibrationEnabled = a.optBoolean("vibrationEnabled", true),
-                vibrationPattern = enumValueOrDefault(a.optString("vibrationPattern"), VibrationPattern.SHORT),
-                snoozeEnabled = a.optBoolean("snoozeEnabled", true),
-                snoozeMinutes = a.optInt("snoozeMinutes", 5),
-                maxSnoozeCount = a.optInt("maxSnoozeCount", 3),
-                autoStopMinutes = a.optInt("autoStopMinutes", 5)
-            )
+                enabled = alarmJson.optBoolean("enabled", true),
+                soundMode = enumValueOrDefault(alarmJson.optString("soundMode"), SoundMode.SOUND),
+                ringtoneUri = alarmJson.optString("ringtoneUri").ifBlank { null },
+                vibrationEnabled = alarmJson.optBoolean("vibrationEnabled", true),
+                vibrationPattern = enumValueOrDefault(alarmJson.optString("vibrationPattern"), VibrationPattern.SHORT),
+                snoozeEnabled = alarmJson.optBoolean("snoozeEnabled", true),
+                snoozeMinutes = alarmJson.optInt("snoozeMinutes", 5),
+                maxSnoozeCount = alarmJson.optInt("maxSnoozeCount", 3),
+                autoStopMinutes = alarmJson.optInt("autoStopMinutes", 5)
+            ).withSafeSoundMode()
             val id = alarmDao.insert(item)
             alarmDao.getById(id)?.let { existingAlarms += it }
             insertedAlarms += 1
@@ -300,6 +311,20 @@ class AlarmRepository(
         rescheduleAll("github-backup-restore")
         return insertedGroups to insertedAlarms
     }
+
+    private suspend fun enableGroupForAlarm(groupId: Long) {
+        val group = groupDao.getById(groupId) ?: return
+        if (!group.enabled) {
+            groupDao.setEnabled(group.id, true, System.currentTimeMillis())
+        }
+    }
+
+    private fun AlarmItem.withSafeSoundMode(): AlarmItem =
+        if (soundMode == SoundMode.SILENT || soundMode == SoundMode.VIBRATE_ONLY) {
+            copy(soundMode = SoundMode.VIBRATE_ONLY, vibrationEnabled = true)
+        } else {
+            this
+        }
 
     private inline fun <reified T : Enum<T>> enumValueOrDefault(name: String, default: T): T =
         runCatching { enumValueOf<T>(name) }.getOrDefault(default)
@@ -315,4 +340,16 @@ class AlarmRepository(
         val label: String = "",
         val soundMode: SoundMode = SoundMode.SOUND,
     )
+
+    companion object {
+        private const val DEFAULT_GROUP_NAME = "既定グループ"
+        private val LEGACY_DEFAULT_GROUP_NAMES = setOf(
+            DEFAULT_GROUP_NAME,
+            "デフォルト",
+            "Default",
+            "譌｢螳壹げ繝ｫ繝ｼ繝・"
+        )
+
+        fun isDefaultGroupName(name: String): Boolean = name in LEGACY_DEFAULT_GROUP_NAMES
+    }
 }

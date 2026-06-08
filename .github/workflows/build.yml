@@ -46,26 +46,24 @@ jobs:
           name: app-release
           path: app/build/outputs/apk/release/*.apk
 
-      # main への push 時のみ、署名済み release APK を GitHub Releases に自動公開する。
-      # versionName からタグ名(v<versionName>)を生成。ワークフロー自身の GITHUB_TOKEN で発行。
       - name: Prepare release APK (main only)
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         run: |
           VN=$(grep 'versionName = ' app/build.gradle.kts | head -1 | sed -E 's/.*"([^"]+)".*/\1/')
           echo "APP_TAG=v$VN" >> "$GITHUB_ENV"
           mkdir -p dist
-          cp app/build/outputs/apk/release/app-release.apk "dist/GalaxyClock-v$VN.apk"
+          cp app/build/outputs/apk/release/app-release.apk "dist/GalaxyAlarm-v$VN.apk"
 
       - name: Publish to GitHub Releases (main only)
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.APP_TAG }}
-          name: Galaxy 時計 ${{ env.APP_TAG }}
+          name: Galaxy Clock ${{ env.APP_TAG }}
           files: dist/*.apk
           body: |
-            Galaxy 時計 ${{ env.APP_TAG }}(自動ビルド)
+            Galaxy Clock ${{ env.APP_TAG }}
 
-            スマホのブラウザでこのページを開き、`GalaxyClock-*.apk` をタップしてインストールしてください。
-            初回は「提供元不明のアプリ」のインストール許可が必要です。
-            ※「全画面通知」を信頼性チェックから許可すると、ロック画面で全画面表示されます(OFFでも音・バイブ・通知は出ます)。
+            APK: GalaxyAlarm-${{ env.APP_TAG }}.apk
+
+            スマホのブラウザでこのページを開き、APKをダウンロードしてインストールしてください。
