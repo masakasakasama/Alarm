@@ -127,3 +127,5 @@ sdk.dir=/path/to/Android/sdk
 ./gradlew testDebugUnitTest        # 次回鳴動時刻ロジック
 ./gradlew connectedDebugAndroidTest # Room の大量登録・同時刻・requestCode 一意・CASCADE(要実機/エミュ)
 ```
+
+<!-- release retrigger: v1.2.0 (full-screen intent fix) -->
