@@ -6,7 +6,7 @@ import com.galaxyalarm.scheduler.NextTriggerCalculator
 const val TITLE_EXACT_ALARM = "正確なアラーム権限"
 const val TITLE_NOTIFICATIONS = "通知権限"
 const val TITLE_BATTERY = "バッテリー最適化の除外"
-const val TITLE_FULL_SCREEN = "全画面通知"
+const val TITLE_FULL_SCREEN_OPTIONAL = "全画面通知（任意）"
 const val TITLE_ENABLED_ALARMS_IN_OFF_GROUPS = "OFFグループ内のONアラーム"
 const val TITLE_FUTURE_SCHEDULES = "有効アラームの未来予約"
 const val TITLE_REQUEST_CODES = "PendingIntent requestCode"
@@ -35,7 +35,6 @@ data class ReliabilityReport(
             TITLE_EXACT_ALARM,
             TITLE_NOTIFICATIONS,
             TITLE_BATTERY,
-            TITLE_FULL_SCREEN,
             TITLE_ENABLED_ALARMS_IN_OFF_GROUPS,
             TITLE_FUTURE_SCHEDULES,
             TITLE_REQUEST_CODES,
@@ -55,14 +54,14 @@ class ReliabilityChecker(
         items += CheckItem(
             TITLE_EXACT_ALARM,
             exactOk,
-            if (exactOk) "許可済み" else "未許可。設定の「アラームとリマインダー」で許可が必要です。"
+            if (exactOk) "許可済み" else "未許可。アラーム予約には許可が必要です。"
         )
 
         val notifOk = permissions.hasNotificationPermission()
         items += CheckItem(
             TITLE_NOTIFICATIONS,
             notifOk,
-            if (notifOk) "許可済み" else "未許可。鳴動中の通知・ロック画面操作が出ない可能性があります。"
+            if (notifOk) "許可済み" else "未許可。鳴動中の通知とロック画面操作が出ない可能性があります。"
         )
 
         val battOk = permissions.isIgnoringBatteryOptimizations()
@@ -74,9 +73,13 @@ class ReliabilityChecker(
 
         val fsOk = permissions.canUseFullScreenIntent()
         items += CheckItem(
-            TITLE_FULL_SCREEN,
-            fsOk,
-            if (fsOk) "許可済み" else "未許可。ロック画面に全画面で表示できない可能性があります。"
+            TITLE_FULL_SCREEN_OPTIONAL,
+            true,
+            if (fsOk) {
+                "ON。ロック画面に大きく表示できます。"
+            } else {
+                "OFFでも音・バイブ・通知は鳴ります。ロック画面に全画面で出したい時だけONにしてください。"
+            }
         )
 
         items += CheckItem("起動時 再スケジュール", true, "BOOT_COMPLETED / LOCKED_BOOT_COMPLETED を受信")
@@ -95,9 +98,9 @@ class ReliabilityChecker(
         items += CheckItem(
             TITLE_ENABLED_ALARMS_IN_OFF_GROUPS,
             blockedByGroup.isEmpty(),
-            if (blockedByGroup.isEmpty()) "なし"
-            else "${blockedByGroup.size}件あります。修復でグループをONにします。"
+            if (blockedByGroup.isEmpty()) "なし" else "${blockedByGroup.size}件あります。修復でグループをONにします。"
         )
+
         val enabledAlarms = alarms.filter { alarm ->
             alarm.enabled && groups[alarm.groupId]?.enabled == true
         }

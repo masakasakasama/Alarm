@@ -28,31 +28,35 @@ class AlarmRepository(
     fun observeLogs() = logDao.observeRecent()
 
     suspend fun getGroups() = groupDao.getAll()
+    suspend fun getVisibleGroups() = groupDao.getAll().filterNot { isDefaultGroupName(it.name) }
     suspend fun getAlarms() = alarmDao.getAll()
     suspend fun getAlarm(id: Long) = alarmDao.getById(id)
     suspend fun getGroup(id: Long) = groupDao.getById(id)
     suspend fun getAllScheduled() = occurrenceDao.getAllScheduled()
     suspend fun enabledCountInGroup(groupId: Long) = alarmDao.enabledCountInGroup(groupId)
     suspend fun alarmCount() = alarmDao.count()
-    suspend fun groupCount() = groupDao.count()
+    suspend fun groupCount() = getVisibleGroups().size
     suspend fun latestLog() = logDao.latest()
 
     suspend fun addGroup(name: String): Long {
-        val order = groupDao.getAll().size
+        val order = getVisibleGroups().size
         return groupDao.insert(AlarmGroup(name = name, sortOrder = order))
     }
 
-    suspend fun renameGroup(group: AlarmGroup, name: String) =
+    suspend fun renameGroup(group: AlarmGroup, name: String) {
+        if (isDefaultGroupName(group.name)) return
         groupDao.update(group.copy(name = name, updatedAt = System.currentTimeMillis()))
+    }
 
     suspend fun deleteGroup(group: AlarmGroup) {
+        if (isDefaultGroupName(group.name)) return
         scheduler.cancelGroup(group.id)
         groupDao.delete(group)
     }
 
     suspend fun setGroupEnabled(groupId: Long, enabled: Boolean) {
         val group = groupDao.getById(groupId)
-        if (group != null && isDefaultGroupName(group.name) && !enabled) return
+        if (group != null && isDefaultGroupName(group.name)) return
 
         val now = System.currentTimeMillis()
         groupDao.setEnabled(groupId, enabled, now)
@@ -62,67 +66,59 @@ class AlarmRepository(
 
     suspend fun ensureDefaultGroup(): Long {
         val groups = groupDao.getAll()
-        val default = groups.firstOrNull { isDefaultGroupName(it.name) }
-            ?: return addGroup(DEFAULT_GROUP_NAME)
-        if (!default.enabled || default.name != DEFAULT_GROUP_NAME) {
-            groupDao.update(default.copy(name = DEFAULT_GROUP_NAME, enabled = true, updatedAt = System.currentTimeMillis()))
+        val ungrouped = groups.firstOrNull { isDefaultGroupName(it.name) }
+            ?: return groupDao.insert(AlarmGroup(name = DEFAULT_GROUP_NAME, enabled = true, sortOrder = Int.MIN_VALUE))
+        if (!ungrouped.enabled || ungrouped.name != DEFAULT_GROUP_NAME) {
+            groupDao.update(
+                ungrouped.copy(
+                    name = DEFAULT_GROUP_NAME,
+                    enabled = true,
+                    sortOrder = Int.MIN_VALUE,
+                    updatedAt = System.currentTimeMillis()
+                )
+            )
         }
-        return default.id
+        return ungrouped.id
     }
 
     suspend fun ensureImagePresetGroups(): Pair<Int, Int> {
         val presets = listOf(
-            PresetGroup(
-                name = "電車内",
-                alarms = listOf(
-                    PresetAlarm(0, 45),
-                    PresetAlarm(7, 48),
-                    PresetAlarm(8, 30, "ロマンスカー"),
-                    PresetAlarm(9, 30),
-                    PresetAlarm(12, 0),
-                    PresetAlarm(12, 59),
-                    PresetAlarm(13, 0),
-                )
-            ),
-            PresetGroup(
-                name = "ロマンスカー 8:31発",
-                alarms = listOf(
-                    PresetAlarm(7, 15),
-                    PresetAlarm(7, 20),
-                    PresetAlarm(7, 25),
-                    PresetAlarm(7, 40),
-                    PresetAlarm(8, 28),
-                    PresetAlarm(9, 23, "音なし", SoundMode.VIBRATE_ONLY),
-                )
-            ),
-            PresetGroup(
-                name = "ホテル",
-                alarms = listOf(
-                    PresetAlarm(8, 46),
-                    PresetAlarm(8, 50),
-                    PresetAlarm(8, 55),
-                    PresetAlarm(9, 0),
-                    PresetAlarm(9, 15),
-                )
-            ),
-            PresetGroup(
-                name = "在宅",
-                alarms = listOf(
-                    PresetAlarm(8, 35),
-                    PresetAlarm(8, 40),
-                    PresetAlarm(8, 45),
-                    PresetAlarm(12, 58),
-                )
-            ),
-            PresetGroup(
-                name = "午前在宅",
-                alarms = listOf(
-                    PresetAlarm(8, 15),
-                    PresetAlarm(8, 20),
-                    PresetAlarm(8, 25),
-                    PresetAlarm(8, 30),
-                )
-            ),
+            PresetGroup("電車内", listOf(
+                PresetAlarm(0, 45),
+                PresetAlarm(7, 48),
+                PresetAlarm(8, 30, "ロマンスカー"),
+                PresetAlarm(9, 30),
+                PresetAlarm(12, 0),
+                PresetAlarm(12, 59),
+                PresetAlarm(13, 0),
+            )),
+            PresetGroup("ロマンスカー 8:31発", listOf(
+                PresetAlarm(7, 15),
+                PresetAlarm(7, 20),
+                PresetAlarm(7, 25),
+                PresetAlarm(7, 40),
+                PresetAlarm(8, 28),
+                PresetAlarm(9, 23, "音なし", SoundMode.VIBRATE_ONLY),
+            )),
+            PresetGroup("ホテル", listOf(
+                PresetAlarm(8, 46),
+                PresetAlarm(8, 50),
+                PresetAlarm(8, 55),
+                PresetAlarm(9, 0),
+                PresetAlarm(9, 15),
+            )),
+            PresetGroup("在宅", listOf(
+                PresetAlarm(8, 35),
+                PresetAlarm(8, 40),
+                PresetAlarm(8, 45),
+                PresetAlarm(12, 58),
+            )),
+            PresetGroup("午前在宅", listOf(
+                PresetAlarm(8, 15),
+                PresetAlarm(8, 20),
+                PresetAlarm(8, 25),
+                PresetAlarm(8, 30),
+            )),
         )
 
         val groupsByName = groupDao.getAll().associateBy { it.name }.toMutableMap()
@@ -213,7 +209,7 @@ class AlarmRepository(
             .put("schemaVersion", 1)
             .put("exportedAt", System.currentTimeMillis())
             .put("groups", JSONArray().apply {
-                groups.forEach { group ->
+                groups.filterNot { isDefaultGroupName(it.name) }.forEach { group ->
                     put(JSONObject()
                         .put("localId", group.id)
                         .put("name", group.name)
@@ -225,7 +221,7 @@ class AlarmRepository(
                 alarms.forEach { alarm ->
                     put(JSONObject()
                         .put("groupLocalId", alarm.groupId)
-                        .put("groupName", groupNames[alarm.groupId] ?: "")
+                        .put("groupName", groupNames[alarm.groupId] ?: DEFAULT_GROUP_NAME)
                         .put("label", alarm.label)
                         .put("hour", alarm.hour)
                         .put("minute", alarm.minute)
@@ -256,6 +252,10 @@ class AlarmRepository(
             val groupJson = groupsJson.getJSONObject(i)
             val oldId = groupJson.optLong("localId", 0L)
             val name = groupJson.optString("name").ifBlank { DEFAULT_GROUP_NAME }
+            if (isDefaultGroupName(name)) {
+                groupIdMap[oldId] = ensureDefaultGroup()
+                continue
+            }
             val local = groupsByName[name] ?: run {
                 val id = groupDao.insert(
                     AlarmGroup(
@@ -317,14 +317,11 @@ class AlarmRepository(
 
     private suspend fun enableGroupsForEnabledAlarms() {
         val groups = groupDao.getAll().associateBy { it.id }
-        val enabledGroupIds = alarmDao.getAll()
-            .filter { it.enabled }
-            .map { it.groupId }
-            .toSet()
+        val enabledGroupIds = alarmDao.getAll().filter { it.enabled }.map { it.groupId }.toSet()
         val now = System.currentTimeMillis()
         enabledGroupIds.forEach { groupId ->
             val group = groups[groupId] ?: return@forEach
-            if (!group.enabled) {
+            if (!group.enabled || isDefaultGroupName(group.name)) {
                 groupDao.setEnabled(group.id, true, now)
             }
         }
@@ -332,7 +329,7 @@ class AlarmRepository(
 
     private suspend fun enableGroupForAlarm(groupId: Long) {
         val group = groupDao.getById(groupId) ?: return
-        if (!group.enabled) {
+        if (!group.enabled || isDefaultGroupName(group.name)) {
             groupDao.setEnabled(group.id, true, System.currentTimeMillis())
         }
     }
@@ -360,12 +357,15 @@ class AlarmRepository(
     )
 
     companion object {
-        private const val DEFAULT_GROUP_NAME = "既定グループ"
+        const val DEFAULT_GROUP_NAME = "グループなし"
         private val LEGACY_DEFAULT_GROUP_NAMES = setOf(
             DEFAULT_GROUP_NAME,
+            "既定グループ",
             "デフォルト",
             "Default",
-            "譌｢螳壹げ繝ｫ繝ｼ繝・"
+            "譌｢螳壹げ繝ｫ繝ｼ繝・",
+            "繝・ヵ繧ｩ繝ｫ繝・",
+            "隴鯉ｽ｢陞ｳ螢ｹ縺堤ｹ晢ｽｫ郢晢ｽｼ郢昴・"
         )
 
         fun isDefaultGroupName(name: String): Boolean = name in LEGACY_DEFAULT_GROUP_NAMES

@@ -27,6 +27,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.galaxyalarm.data.model.SoundMode
 import com.galaxyalarm.data.model.Weekdays
+import com.galaxyalarm.data.repo.AlarmRepository
 import com.galaxyalarm.ui.AlarmRow
 import com.galaxyalarm.ui.GroupRow
 import com.galaxyalarm.ui.MainViewModel
@@ -34,8 +35,6 @@ import com.galaxyalarm.ui.TimeFormat
 import com.galaxyalarm.ui.components.PillLevel
 import com.galaxyalarm.ui.components.SectionCard
 import com.galaxyalarm.ui.components.StatusPill
-
-private val defaultGroupNames = setOf("既定グループ", "デフォルト", "Default", "譌｢螳壹げ繝ｫ繝ｼ繝・")
 
 @Composable
 fun AlarmsScreen(
@@ -53,16 +52,9 @@ fun AlarmsScreen(
     val rows = if (showingGroup) {
         allRows.filter { it.alarm.groupId == groupId }
     } else {
-        allRows.filter { it.groupName in defaultGroupNames }
+        allRows.filter { AlarmRepository.isDefaultGroupName(it.groupName) }
     }
-    val title = selectedGroup?.name ?: "アラーム"
-    val groupedRows = if (showingGroup) {
-        emptyList()
-    } else {
-        groupRows.filter { row ->
-            row.totalCount > 0 && row.group.name !in defaultGroupNames
-        }
-    }
+    val groupedRows = if (showingGroup) emptyList() else groupRows.filter { it.totalCount > 0 }
 
     LazyColumn(
         Modifier.fillMaxWidth().padding(horizontal = 16.dp),
@@ -76,9 +68,9 @@ fun AlarmsScreen(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Column {
-                    Text(title, style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
+                    Text(selectedGroup?.name ?: "アラーム", style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
                     if (!showingGroup) {
-                        Text("未グループのアラームだけを表示", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("グループなしのアラーム", color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
                 TextButton(onClick = onAddAlarm) { Text("+ 追加") }
@@ -96,7 +88,7 @@ fun AlarmsScreen(
         if (rows.isEmpty()) item {
             SectionCard(Modifier.fillMaxWidth()) {
                 Text(
-                    if (showingGroup) "このグループにアラームはありません" else "未グループのアラームはありません",
+                    if (showingGroup) "このグループにアラームはありません" else "グループなしのアラームはありません",
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
@@ -105,7 +97,7 @@ fun AlarmsScreen(
         if (groupedRows.isNotEmpty()) {
             item {
                 Text(
-                    "グループ化済み",
+                    "グループ",
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.SemiBold,
                     modifier = Modifier.padding(top = 10.dp)
@@ -160,10 +152,7 @@ private fun GroupSummaryCard(row: GroupRow, onOpen: () -> Unit, onToggle: (Boole
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Text(row.group.name, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
-                Text(
-                    "有効 ${row.enabledCount} / 全 ${row.totalCount} 件",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+                Text("有効 ${row.enabledCount} / 全 ${row.totalCount} 件", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Spacer(Modifier.height(6.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                     StatusPill(if (row.group.enabled) "ON" else "OFF", if (row.group.enabled) PillLevel.OK else PillLevel.WARN)

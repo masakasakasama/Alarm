@@ -9,6 +9,7 @@ import com.galaxyalarm.backup.GitHubBackupStore
 import com.galaxyalarm.data.entity.AlarmGroup
 import com.galaxyalarm.data.entity.AlarmItem
 import com.galaxyalarm.data.model.Weekdays
+import com.galaxyalarm.data.repo.AlarmRepository
 import com.galaxyalarm.reliability.ReliabilityReport
 import com.galaxyalarm.scheduler.NextTriggerCalculator
 import com.galaxyalarm.widget.NextAlarmWidgetProvider
@@ -48,7 +49,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     val groupRows: StateFlow<List<GroupRow>> =
         combine(groupsFlow, alarmsFlow) { groups, alarms ->
-            groups.map { g ->
+            groups.filterNot { AlarmRepository.isDefaultGroupName(it.name) }.map { g ->
                 val inGroup = alarms.filter { it.groupId == g.id }
                 val enabled = inGroup.filter { it.enabled }
                 val next = if (g.enabled && permissions.canScheduleExactAlarms()) {
@@ -70,7 +71,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val groups: StateFlow<List<AlarmGroup>> =
-        groupsFlow.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+        groupsFlow
+            .map { groups -> groups.filterNot { AlarmRepository.isDefaultGroupName(it.name) } }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val logs = repo.observeLogs()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())

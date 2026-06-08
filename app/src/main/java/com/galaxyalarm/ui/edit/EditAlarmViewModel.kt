@@ -10,10 +10,10 @@ import com.galaxyalarm.data.entity.AlarmGroup
 import com.galaxyalarm.data.entity.AlarmItem
 import com.galaxyalarm.data.model.SoundMode
 import com.galaxyalarm.widget.NextAlarmWidgetProvider
+import java.util.Calendar
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 
-/** 追加/編集画面の状態保持。alarmId<=0 は新規。 */
 class EditAlarmViewModel(app: Application) : AndroidViewModel(app) {
     private val appContext = app.applicationContext
     private val repo = (app as AlarmApplication).container.repository
@@ -22,18 +22,17 @@ class EditAlarmViewModel(app: Application) : AndroidViewModel(app) {
     val groups = MutableStateFlow<List<AlarmGroup>>(emptyList())
 
     fun load(alarmId: Long) = viewModelScope.launch {
-        val defaultGroupId = repo.ensureDefaultGroup()
-        val gs = repo.getGroups()
-        groups.value = gs
+        val ungroupedId = repo.ensureDefaultGroup()
+        val allGroups = repo.getGroups()
+        groups.value = allGroups
         draft.value = if (alarmId > 0) {
             repo.getAlarm(alarmId)?.withoutSilent()
         } else {
-            // 新規追加時は現在時刻を初期値にする。
-            val now = java.util.Calendar.getInstance()
+            val now = Calendar.getInstance()
             AlarmItem(
-                groupId = gs.firstOrNull { it.id == defaultGroupId }?.id ?: defaultGroupId,
-                hour = now.get(java.util.Calendar.HOUR_OF_DAY),
-                minute = now.get(java.util.Calendar.MINUTE)
+                groupId = allGroups.firstOrNull { it.id == ungroupedId }?.id ?: ungroupedId,
+                hour = now.get(Calendar.HOUR_OF_DAY),
+                minute = now.get(Calendar.MINUTE)
             )
         }
     }

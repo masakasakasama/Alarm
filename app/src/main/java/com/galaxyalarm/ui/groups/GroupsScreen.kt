@@ -69,7 +69,7 @@ fun GroupsScreen(vm: MainViewModel, onOpenGroup: (Long) -> Unit) {
             )
         }
         if (rows.isEmpty()) item {
-            Text("グループがありません。追加してください。", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("グループはありません。必要なときだけ追加してください。", color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 
