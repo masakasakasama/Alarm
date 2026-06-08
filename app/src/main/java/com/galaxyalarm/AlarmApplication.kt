@@ -1,6 +1,7 @@
 package com.galaxyalarm
 
 import android.app.Application
+import android.os.UserManager
 import com.galaxyalarm.data.db.AppDatabase
 import com.galaxyalarm.data.repo.AlarmRepository
 import com.galaxyalarm.notify.NotificationHelper
@@ -47,16 +48,24 @@ class AlarmApplication : Application() {
         super.onCreate()
         instance = this
         container = AppContainer(this)
-        NotificationHelper(this).createChannels()
+        runCatching { NotificationHelper(this).createChannels() }
 
-        // アプリ起動時: 既定グループ確保 → 全再スケジュール → 健全性チェック。
+        // アプリ起動時(Direct Boot=再起動直後の未解除状態を含む): 全再スケジュール。
+        // DB はデバイス暗号化ストレージなので未解除でも読める。例外で絶対に落とさない。
         appScope.launch {
-            container.repository.ensureDefaultGroup()
-            container.repository.rescheduleAll("app-start")
-            container.reliabilityChecker.runCheck()
+            runCatching {
+                container.repository.ensureDefaultGroup()
+                container.repository.rescheduleAll("app-start")
+                container.reliabilityChecker.runCheck()
+            }
         }
-        // バックグラウンド定期チェック。
-        ScheduleHealthWorker.schedule(this)
+
+        // WorkManager はロック解除後(CEストレージ利用可)のみ初期化する。
+        // Direct Boot 中に呼ぶと例外になり得るため、未解除時はスキップ。
+        val unlocked = getSystemService(UserManager::class.java)?.isUserUnlocked ?: true
+        if (unlocked) {
+            runCatching { ScheduleHealthWorker.schedule(this) }
+        }
     }
 
     companion object {

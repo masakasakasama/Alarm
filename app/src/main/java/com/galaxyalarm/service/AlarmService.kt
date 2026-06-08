@@ -43,6 +43,12 @@ class AlarmService : Service() {
 
     private val container get() = (application as AlarmApplication).container
 
+    override fun onCreate() {
+        super.onCreate()
+        // Direct Boot 起動時にもチャンネルが存在するよう保証(冪等)。
+        runCatching { notifier.createChannels() }
+    }
+
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {

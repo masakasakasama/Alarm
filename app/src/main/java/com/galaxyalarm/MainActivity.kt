@@ -41,6 +41,8 @@ class MainActivity : ComponentActivity() {
                 container.reliabilityChecker.runCheck()
             }
         }
+        // ロック解除後に確実に定期健全性チェックを登録(Direct Boot起動時はスキップされるため)。
+        runCatching { com.galaxyalarm.reliability.ScheduleHealthWorker.schedule(this) }
     }
 
     private fun requestNotificationPermissionIfNeeded() {

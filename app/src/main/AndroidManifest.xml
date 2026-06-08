@@ -38,6 +38,7 @@
         <activity
             android:name=".ring.AlarmRingActivity"
             android:exported="false"
+            android:directBootAware="true"
             android:excludeFromRecents="true"
             android:launchMode="singleInstance"
             android:showOnLockScreen="true"
@@ -49,17 +50,20 @@
         <service
             android:name=".service.AlarmService"
             android:exported="false"
+            android:directBootAware="true"
             android:foregroundServiceType="mediaPlayback" />
 
         <!-- アラーム発火 Receiver -->
         <receiver
             android:name=".receiver.AlarmReceiver"
-            android:exported="false" />
+            android:exported="false"
+            android:directBootAware="true" />
 
         <!-- 起動完了・更新・時刻/TZ変更 -->
         <receiver
             android:name=".receiver.SystemEventReceiver"
-            android:exported="true">
+            android:exported="true"
+            android:directBootAware="true">
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
                 <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
@@ -72,7 +76,8 @@
         <!-- Android 12+: exact alarm 権限状態変更 -->
         <receiver
             android:name=".receiver.ExactAlarmPermissionReceiver"
-            android:exported="true">
+            android:exported="true"
+            android:directBootAware="true">
             <intent-filter>
                 <action android:name="android.app.action.SCHEDULE_EXACT_ALARM_PERMISSION_STATE_CHANGED" />
             </intent-filter>
