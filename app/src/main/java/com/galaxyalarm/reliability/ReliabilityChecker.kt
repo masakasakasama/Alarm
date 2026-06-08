@@ -3,10 +3,16 @@ package com.galaxyalarm.reliability
 import com.galaxyalarm.data.repo.AlarmRepository
 import com.galaxyalarm.scheduler.NextTriggerCalculator
 
-/** 1項目のチェック結果。 */
+const val TITLE_EXACT_ALARM = "正確なアラーム権限"
+const val TITLE_NOTIFICATIONS = "通知権限"
+const val TITLE_BATTERY = "バッテリー最適化の除外"
+const val TITLE_FULL_SCREEN = "全画面通知"
+const val TITLE_FUTURE_SCHEDULES = "有効アラームの未来予約"
+const val TITLE_REQUEST_CODES = "PendingIntent requestCode"
+const val TITLE_TRIGGER_CONSISTENCY = "次回鳴動時刻の整合"
+
 data class CheckItem(val title: String, val ok: Boolean, val detail: String)
 
-/** 信頼性チェック画面に出す総合レポート。 */
 data class ReliabilityReport(
     val items: List<CheckItem>,
     val lastCheckAt: Long,
@@ -15,14 +21,22 @@ data class ReliabilityReport(
     val lastEventLogSummary: String,
 ) {
     val allOk: Boolean get() = items.all { it.ok }
-    val hasCritical: Boolean get() = items.any { !it.ok && it.critical() }
-    private fun CheckItem.critical(): Boolean =
-        title.contains("exact") || title.contains("正確") || title.contains("予約")
+    val hasCritical: Boolean get() = items.any { !it.ok && it.isCritical() }
+    val hasMissingFutureSchedule: Boolean get() =
+        items.any { it.title == TITLE_FUTURE_SCHEDULES && !it.ok }
+
+    private fun CheckItem.isCritical(): Boolean =
+        title in setOf(
+            TITLE_EXACT_ALARM,
+            TITLE_NOTIFICATIONS,
+            TITLE_BATTERY,
+            TITLE_FULL_SCREEN,
+            TITLE_FUTURE_SCHEDULES,
+            TITLE_REQUEST_CODES,
+            TITLE_TRIGGER_CONSISTENCY,
+        )
 }
 
-/**
- * すべての信頼性項目を検査し、結果を ReliabilityStore に記録する。
- */
 class ReliabilityChecker(
     private val repo: AlarmRepository,
     private val permissions: PermissionChecker,
@@ -33,67 +47,74 @@ class ReliabilityChecker(
 
         val exactOk = permissions.canScheduleExactAlarms()
         items += CheckItem(
-            "正確なアラーム権限 (exact alarm)", exactOk,
-            if (exactOk) "許可済み" else "未許可。設定から許可してください"
+            TITLE_EXACT_ALARM,
+            exactOk,
+            if (exactOk) "許可済み" else "未許可。設定の「アラームとリマインダー」で許可が必要です。"
         )
+
         val notifOk = permissions.hasNotificationPermission()
         items += CheckItem(
-            "通知権限", notifOk,
-            if (notifOk) "許可済み" else "未許可。鳴動表示が出ない可能性"
+            TITLE_NOTIFICATIONS,
+            notifOk,
+            if (notifOk) "許可済み" else "未許可。鳴動中の通知・ロック画面操作が出ない可能性があります。"
         )
+
         val battOk = permissions.isIgnoringBatteryOptimizations()
         items += CheckItem(
-            "バッテリー最適化の除外", battOk,
-            if (battOk) "除外済み" else "未除外。Dozeで遅延の恐れ"
+            TITLE_BATTERY,
+            battOk,
+            if (battOk) "除外済み" else "未除外。Dozeやメーカー最適化で遅延する可能性があります。"
         )
+
         val fsOk = permissions.canUseFullScreenIntent()
         items += CheckItem(
-            "全画面通知", fsOk,
-            if (fsOk) "許可済み" else "未許可。ロック画面に全画面表示できない恐れ"
+            TITLE_FULL_SCREEN,
+            fsOk,
+            if (fsOk) "許可済み" else "未許可。ロック画面に全画面で表示できない可能性があります。"
         )
 
-        // 起動時/更新後/TZ/時刻変更への対応はマニフェスト宣言で常に有効。
-        items += CheckItem("起動時 再スケジュール対応", true, "BOOT_COMPLETED を受信")
-        items += CheckItem("アプリ更新後 再スケジュール対応", true, "MY_PACKAGE_REPLACED を受信")
-        items += CheckItem("タイムゾーン変更対応", true, "TIMEZONE_CHANGED を受信")
-        items += CheckItem("時刻変更対応", true, "TIME_SET を受信")
+        items += CheckItem("起動時 再スケジュール", true, "BOOT_COMPLETED / LOCKED_BOOT_COMPLETED を受信")
+        items += CheckItem("初回ロック解除 再スケジュール", true, "USER_UNLOCKED を受信")
+        items += CheckItem("アプリ更新後 再スケジュール", true, "MY_PACKAGE_REPLACED を受信")
+        items += CheckItem("時刻・タイムゾーン変更対応", true, "TIME_SET / TIMEZONE_CHANGED を受信")
+        items += CheckItem("定期監視", true, "WorkManagerで3時間ごとに確認")
 
-        // 有効アラームに未来の予約があるか。
         val alarms = repo.getAlarms()
         val groups = repo.getGroups().associateBy { it.id }
         val scheduled = repo.getAllScheduled()
         val now = System.currentTimeMillis()
-        val enabledAlarms = alarms.filter { a ->
-            a.enabled && groups[a.groupId]?.enabled == true
+        val enabledAlarms = alarms.filter { alarm ->
+            alarm.enabled && groups[alarm.groupId]?.enabled == true
         }
         val scheduledAlarmIds = scheduled.filter { it.triggerAtMillis > now }
-            .map { it.alarmId }.toSet()
+            .map { it.alarmId }
+            .toSet()
         val missing = enabledAlarms.filter { it.id !in scheduledAlarmIds }
         items += CheckItem(
-            "有効アラームの未来予約", missing.isEmpty(),
+            TITLE_FUTURE_SCHEDULES,
+            missing.isEmpty(),
             if (missing.isEmpty()) "${enabledAlarms.size}件すべて予約済み"
-            else "${missing.size}件 予約欠落。修復が必要"
+            else "${missing.size}件の未来予約が欠落。修復が必要です。"
         )
 
-        // requestCode の重複。
-        val rcs = scheduled.map { it.requestCode }
-        val dupOk = rcs.size == rcs.toSet().size
+        val requestCodes = scheduled.map { it.requestCode }
+        val requestCodesOk = requestCodes.size == requestCodes.toSet().size
         items += CheckItem(
-            "PendingIntent requestCode 重複なし", dupOk,
-            if (dupOk) "重複なし (${rcs.size}件)" else "重複検出!"
+            TITLE_REQUEST_CODES,
+            requestCodesOk,
+            if (requestCodesOk) "重複なし (${requestCodes.size}件)" else "重複があります。再スケジュールが必要です。"
         )
 
-        // 次回鳴動時刻の整合(再計算と予約のズレが大きくないか)。
         var consistencyOk = true
         for (occ in scheduled.filter { it.triggerAtMillis > now && it.snoozeCount == 0 }) {
-            val a = alarms.firstOrNull { it.id == occ.alarmId } ?: continue
-            val recomputed = NextTriggerCalculator.nextTrigger(a.hour, a.minute, a.weekdaysMask)
-            // スヌーズ以外で、予約が再計算より大幅に過去ならズレとみなす。
+            val alarm = alarms.firstOrNull { it.id == occ.alarmId } ?: continue
+            val recomputed = NextTriggerCalculator.nextTrigger(alarm.hour, alarm.minute, alarm.weekdaysMask)
             if (occ.triggerAtMillis < recomputed - 60_000) consistencyOk = false
         }
         items += CheckItem(
-            "次回鳴動時刻の整合", consistencyOk,
-            if (consistencyOk) "整合" else "ズレあり。修復推奨"
+            TITLE_TRIGGER_CONSISTENCY,
+            consistencyOk,
+            if (consistencyOk) "整合" else "予約時刻にズレがあります。再スケジュールが必要です。"
         )
 
         return ReliabilityReport(
@@ -107,23 +128,23 @@ class ReliabilityChecker(
         )
     }
 
-    /** チェックを実行し、結果概要を保存。UI からもバックグラウンドからも呼ぶ。 */
     suspend fun runCheck(): ReliabilityReport {
         val report = buildReport()
         store.lastCheckAt = System.currentTimeMillis()
         store.lastCheckOk = report.allOk
-        store.lastCheckSummary =
-            if (report.allOk) "問題なし" else report.items.filter { !it.ok }
-                .joinToString("、") { it.title }
+        store.lastCheckSummary = if (report.allOk) {
+            "問題なし"
+        } else {
+            report.items.filter { !it.ok }.joinToString("、") { it.title }
+        }
         return report
     }
 
-    /** 手動/自動の「スケジュール修復」。 */
-    suspend fun repair(): ReliabilityReport {
-        repo.rescheduleAll("manual-repair")
+    suspend fun repair(reason: String = "manual-repair"): ReliabilityReport {
+        repo.rescheduleAll(reason)
         store.lastRepairAt = System.currentTimeMillis()
         val report = runCheck()
-        store.lastRepairResult = if (report.allOk) "修復成功・問題なし" else "修復実行・一部要対応"
+        store.lastRepairResult = if (report.allOk) "修復成功・問題なし" else "修復後も要対応項目あり"
         return report
     }
 }

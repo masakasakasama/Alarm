@@ -9,6 +9,7 @@ import android.content.Intent
 import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationCompat.Action
+import com.galaxyalarm.MainActivity
 import com.galaxyalarm.R
 import com.galaxyalarm.receiver.AlarmReceiver
 import com.galaxyalarm.ring.AlarmRingActivity
@@ -41,7 +42,15 @@ class NotificationHelper(private val context: Context) {
             context.getString(R.string.health_channel_name),
             NotificationManager.IMPORTANCE_LOW
         )
-        nm.createNotificationChannels(listOf(alarm, service, health))
+        val alerts = NotificationChannel(
+            CHANNEL_RELIABILITY_ALERT,
+            "アラーム要対応",
+            NotificationManager.IMPORTANCE_HIGH
+        ).apply {
+            description = "OS更新や権限変更でアラームが鳴らない恐れがある時の警告"
+            lockscreenVisibility = Notification.VISIBILITY_PUBLIC
+        }
+        nm.createNotificationChannels(listOf(alarm, service, health, alerts))
     }
 
     fun buildLoadingNotification(): Notification =
@@ -53,6 +62,29 @@ class NotificationHelper(private val context: Context) {
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setOngoing(true)
             .build()
+
+    fun showReliabilityWarning(title: String, message: String) {
+        val pi = PendingIntent.getActivity(
+            context,
+            7001,
+            Intent(context, MainActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            },
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        val notification = NotificationCompat.Builder(context, CHANNEL_RELIABILITY_ALERT)
+            .setSmallIcon(R.drawable.ic_launcher_foreground)
+            .setContentTitle(title)
+            .setContentText(message)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(message))
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setCategory(NotificationCompat.CATEGORY_ALARM)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .setContentIntent(pi)
+            .setAutoCancel(true)
+            .build()
+        runCatching { nm.notify(RELIABILITY_ALERT_ID, notification) }
+    }
 
     fun buildAlarmNotification(
         occurrenceId: Long,
@@ -114,6 +146,8 @@ class NotificationHelper(private val context: Context) {
         const val CHANNEL_ALARM = "alarm_ring"
         const val CHANNEL_SERVICE = "alarm_service"
         const val CHANNEL_HEALTH = "schedule_health"
+        const val CHANNEL_RELIABILITY_ALERT = "alarm_reliability_alerts"
         const val FOREGROUND_ID = 42
+        const val RELIABILITY_ALERT_ID = 43
     }
 }

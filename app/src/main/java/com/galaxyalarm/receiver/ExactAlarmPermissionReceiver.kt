@@ -5,21 +5,30 @@ import android.content.Context
 import android.content.Intent
 import android.util.Log
 import com.galaxyalarm.AlarmApplication
+import com.galaxyalarm.notify.NotificationHelper
+import com.galaxyalarm.reliability.ScheduleHealthWorker
+import com.galaxyalarm.widget.NextAlarmWidgetProvider
 import kotlinx.coroutines.launch
 
-/**
- * Android 12+: exact alarm 権限の状態が変わったら全再スケジュール。
- * 付与時は予約復元、取消時は再構築試行(失敗はログに残す)。
- */
 class ExactAlarmPermissionReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         Log.i(TAG, "exact alarm permission changed")
+        ScheduleHealthWorker.runSoon(context, "exact-permission-changed")
+
         val app = context.applicationContext as AlarmApplication
         val pending = goAsync()
         app.appScope.launch {
             try {
                 app.container.repository.rescheduleAll("exact-permission-changed")
-                app.container.reliabilityChecker.runCheck()
+                val report = app.container.reliabilityChecker.runCheck()
+                NextAlarmWidgetProvider.refresh(context)
+                if (report.hasCritical) {
+                    val issues = report.items.filter { !it.ok }.joinToString("、") { it.title }
+                    NotificationHelper(context).showReliabilityWarning(
+                        title = "アラーム権限を確認してください",
+                        message = "正確なアラーム権限の変更後に要対応項目があります: $issues"
+                    )
+                }
             } finally {
                 pending.finish()
             }

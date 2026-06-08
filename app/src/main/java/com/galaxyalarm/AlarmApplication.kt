@@ -1,6 +1,7 @@
 package com.galaxyalarm
 
 import android.app.Application
+import android.os.Build
 import com.galaxyalarm.data.db.AppDatabase
 import com.galaxyalarm.data.repo.AlarmRepository
 import com.galaxyalarm.notify.NotificationHelper
@@ -54,8 +55,25 @@ class AlarmApplication : Application() {
         appScope.launch {
             container.repository.ensureDefaultGroup()
             container.repository.ensureImagePresetGroups()
-            container.repository.rescheduleAll("app-start")
-            container.reliabilityChecker.runCheck()
+            val fingerprint = Build.FINGERPRINT ?: ""
+            val reason = if (
+                container.reliabilityStore.lastBuildFingerprint.isNotBlank() &&
+                container.reliabilityStore.lastBuildFingerprint != fingerprint
+            ) {
+                "os-build-changed"
+            } else {
+                "app-start"
+            }
+            container.repository.rescheduleAll(reason)
+            val report = container.reliabilityChecker.runCheck()
+            container.reliabilityStore.lastBuildFingerprint = fingerprint
+            if (report.hasCritical) {
+                val issues = report.items.filter { !it.ok }.joinToString("、") { it.title }
+                NotificationHelper(this@AlarmApplication).showReliabilityWarning(
+                    title = "アラーム設定を確認してください",
+                    message = "OS更新または権限変更の影響で要対応項目があります: $issues"
+                )
+            }
             NextAlarmWidgetProvider.refresh(this@AlarmApplication)
         }
         // バックグラウンド定期チェック。

@@ -2,10 +2,6 @@ package com.galaxyalarm.reliability
 
 import android.content.Context
 
-/**
- * 信頼性関連の小さな状態(最終チェック時刻・修復結果)を SharedPreferences で保持。
- * Receiver/Worker から同期的に読み書きできるよう、あえて軽量実装にする。
- */
 class ReliabilityStore(context: Context) {
     private val sp = context.getSharedPreferences("reliability", Context.MODE_PRIVATE)
 
@@ -18,7 +14,7 @@ class ReliabilityStore(context: Context) {
         set(v) = sp.edit().putBoolean("lastCheckOk", v).apply()
 
     var lastCheckSummary: String
-        get() = sp.getString("lastCheckSummary", "未実施") ?: "未実施"
+        get() = sp.getString("lastCheckSummary", "未実行") ?: "未実行"
         set(v) = sp.edit().putString("lastCheckSummary", v).apply()
 
     var lastRepairAt: Long
@@ -26,6 +22,10 @@ class ReliabilityStore(context: Context) {
         set(v) = sp.edit().putLong("lastRepairAt", v).apply()
 
     var lastRepairResult: String
-        get() = sp.getString("lastRepairResult", "未実施") ?: "未実施"
+        get() = sp.getString("lastRepairResult", "未実行") ?: "未実行"
         set(v) = sp.edit().putString("lastRepairResult", v).apply()
+
+    var lastBuildFingerprint: String
+        get() = sp.getString("lastBuildFingerprint", "") ?: ""
+        set(v) = sp.edit().putString("lastBuildFingerprint", v).apply()
 }
