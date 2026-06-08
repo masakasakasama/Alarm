@@ -84,7 +84,7 @@ class AlarmRepository(
                     PresetAlarm(7, 25),
                     PresetAlarm(7, 40),
                     PresetAlarm(8, 28),
-                    PresetAlarm(9, 23, "音無し", SoundMode.SILENT),
+                    PresetAlarm(9, 23, "音なし", SoundMode.VIBRATE_ONLY),
                 )
             ),
             PresetGroup(
@@ -146,7 +146,7 @@ class AlarmRepository(
                             minute = presetAlarm.minute,
                             enabled = false,
                             soundMode = presetAlarm.soundMode,
-                            vibrationEnabled = presetAlarm.soundMode != SoundMode.SILENT
+                            vibrationEnabled = true
                         )
                     )
                     alarmDao.getById(id)?.let { alarms += it }

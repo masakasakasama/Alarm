@@ -7,8 +7,12 @@ import com.galaxyalarm.data.model.SoundMode
 import com.galaxyalarm.data.model.VibrationPattern
 
 class Converters {
-    @TypeConverter fun soundMode(v: SoundMode) = v.name
-    @TypeConverter fun toSoundMode(v: String) = SoundMode.valueOf(v)
+    @TypeConverter fun soundMode(v: SoundMode) =
+        if (v == SoundMode.SILENT) SoundMode.VIBRATE_ONLY.name else v.name
+
+    @TypeConverter fun toSoundMode(v: String) =
+        runCatching { SoundMode.valueOf(v) }.getOrDefault(SoundMode.SOUND)
+            .let { if (it == SoundMode.SILENT) SoundMode.VIBRATE_ONLY else it }
 
     @TypeConverter fun status(v: OccurrenceStatus) = v.name
     @TypeConverter fun toStatus(v: String) = OccurrenceStatus.valueOf(v)

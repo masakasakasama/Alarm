@@ -8,6 +8,7 @@ import com.galaxyalarm.backup.GitHubBackupClient
 import com.galaxyalarm.backup.GitHubBackupStore
 import com.galaxyalarm.data.entity.AlarmGroup
 import com.galaxyalarm.data.entity.AlarmItem
+import com.galaxyalarm.data.model.SoundMode
 import com.galaxyalarm.widget.NextAlarmWidgetProvider
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
@@ -24,7 +25,7 @@ class EditAlarmViewModel(app: Application) : AndroidViewModel(app) {
         val gs = repo.getGroups()
         groups.value = gs
         draft.value = if (alarmId > 0) {
-            repo.getAlarm(alarmId)
+            repo.getAlarm(alarmId)?.withoutSilent()
         } else {
             val gid = repo.ensureDefaultGroup()
             // 新規追加時は現在時刻を初期値にする。
@@ -38,11 +39,11 @@ class EditAlarmViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun update(transform: (AlarmItem) -> AlarmItem) {
-        draft.value = draft.value?.let(transform)
+        draft.value = draft.value?.let(transform)?.withoutSilent()
     }
 
     fun save(onDone: () -> Unit) = viewModelScope.launch {
-        draft.value?.let { repo.saveAlarm(it.copy(enabled = true)) }
+        draft.value?.let { repo.saveAlarm(it.withoutSilent().copy(enabled = true)) }
         refreshWidgets()
         backupIfConfigured()
         onDone()
@@ -58,6 +59,9 @@ class EditAlarmViewModel(app: Application) : AndroidViewModel(app) {
     private fun refreshWidgets() {
         runCatching { NextAlarmWidgetProvider.refresh(appContext) }
     }
+
+    private fun AlarmItem.withoutSilent(): AlarmItem =
+        if (soundMode == SoundMode.SILENT) copy(soundMode = SoundMode.VIBRATE_ONLY, vibrationEnabled = true) else this
 
     private suspend fun backupIfConfigured() {
         runCatching {

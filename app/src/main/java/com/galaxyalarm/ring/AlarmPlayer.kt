@@ -14,10 +14,6 @@ import android.util.Log
 import com.galaxyalarm.data.model.SoundMode
 import com.galaxyalarm.data.model.VibrationPattern
 
-/**
- * 音とバイブの再生制御。SoundMode に応じて：
- * SOUND=音(+任意でバイブ) / VIBRATE_ONLY=音なしバイブのみ / SILENT=音もバイブも無し。
- */
 class AlarmPlayer(private val context: Context) {
 
     private var player: MediaPlayer? = null
@@ -41,12 +37,9 @@ class AlarmPlayer(private val context: Context) {
                 playSound(ringtoneUri)
                 if (vibrationEnabled) vibrate(pattern)
             }
-            SoundMode.VIBRATE_ONLY -> {
-                // 音は鳴らさず、バイブのみ(設定でバイブOFFなら何もしない)。
-                if (vibrationEnabled) vibrate(pattern)
-            }
+            SoundMode.VIBRATE_ONLY,
             SoundMode.SILENT -> {
-                // 完全無音: 音もバイブも出さない(画面と通知のみ)。
+                vibrate(pattern)
             }
         }
     }
@@ -68,11 +61,11 @@ class AlarmPlayer(private val context: Context) {
                 setOnPreparedListener { it.start() }
                 prepareAsync()
             }
-            // アラーム音量を最大化(端末ポリシー内で)。
-            val am = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
-            am.setStreamVolume(
+            val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+            audioManager.setStreamVolume(
                 AudioManager.STREAM_ALARM,
-                am.getStreamMaxVolume(AudioManager.STREAM_ALARM), 0
+                audioManager.getStreamMaxVolume(AudioManager.STREAM_ALARM),
+                0
             )
         } catch (e: Exception) {
             Log.e(TAG, "playSound failed", e)
@@ -93,13 +86,19 @@ class AlarmPlayer(private val context: Context) {
         }
     }
 
-    /** 音・バイブを確実に止める。 */
     fun stop() {
         try {
-            player?.let { if (it.isPlaying) it.stop(); it.release() }
-        } catch (_: Exception) {}
+            player?.let {
+                if (it.isPlaying) it.stop()
+                it.release()
+            }
+        } catch (_: Exception) {
+        }
         player = null
-        try { vibrator.cancel() } catch (_: Exception) {}
+        try {
+            vibrator.cancel()
+        } catch (_: Exception) {
+        }
     }
 
     companion object { private const val TAG = "AlarmPlayer" }

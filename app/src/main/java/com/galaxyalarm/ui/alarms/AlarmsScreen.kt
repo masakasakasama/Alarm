@@ -180,7 +180,7 @@ private fun GroupSummaryCard(row: GroupRow, onOpen: () -> Unit, onToggle: (Boole
 private fun SoundModePill(mode: SoundMode) {
     when (mode) {
         SoundMode.SOUND -> StatusPill("音あり", PillLevel.OK)
-        SoundMode.VIBRATE_ONLY -> StatusPill("バイブのみ", PillLevel.WARN)
-        SoundMode.SILENT -> StatusPill("無音", PillLevel.WARN)
+        SoundMode.VIBRATE_ONLY -> StatusPill("音なし", PillLevel.WARN)
+        SoundMode.SILENT -> StatusPill("音なし", PillLevel.WARN)
     }
 }
