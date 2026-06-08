@@ -105,9 +105,15 @@ private fun CheckRow(item: CheckItem, context: android.content.Context) {
                 color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 4.dp))
             if (!item.ok) {
                 val action: (() -> Unit)? = when {
-                    item.title.contains("exact") -> { { SystemSettings.openExactAlarmSettings(context) } }
-                    item.title.contains("通知") -> { { SystemSettings.openNotificationSettings(context) } }
-                    item.title.contains("バッテリー") -> { { SystemSettings.openBatteryOptimizationSettings(context) } }
+                    item.title.contains("exact") || item.title.contains("正確") ->
+                        { { SystemSettings.openExactAlarmSettings(context) } }
+                    // 「全画面通知」は一般の通知許可とは別物。専用設定へ誘導する(「通知」より先に判定)。
+                    item.title.contains("全画面") ->
+                        { { SystemSettings.openFullScreenIntentSettings(context) } }
+                    item.title.contains("通知") ->
+                        { { SystemSettings.openNotificationSettings(context) } }
+                    item.title.contains("バッテリー") ->
+                        { { SystemSettings.openBatteryOptimizationSettings(context) } }
                     else -> null
                 }
                 if (action != null) {
