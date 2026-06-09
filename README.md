@@ -135,3 +135,5 @@ sdk.dir=/path/to/Android/sdk
 <!-- retrigger v1.2.6 -->
 
 <!-- retrigger v1.3.0 -->
+
+<!-- retrigger v1.3.1 -->
