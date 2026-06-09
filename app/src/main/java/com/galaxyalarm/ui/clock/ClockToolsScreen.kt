@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
@@ -18,6 +19,8 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
@@ -34,6 +37,7 @@ import com.galaxyalarm.ui.TimeFormat
 import com.galaxyalarm.ui.components.PillLevel
 import com.galaxyalarm.ui.components.SectionCard
 import com.galaxyalarm.ui.components.StatusPill
+import com.galaxyalarm.ui.components.WheelPicker
 import kotlinx.coroutines.delay
 import java.text.SimpleDateFormat
 import java.util.Locale
@@ -184,55 +188,102 @@ private fun StopwatchBlock() {
 
 @Composable
 private fun TimerBlock() {
-    var totalSeconds by rememberSaveable { androidx.compose.runtime.mutableIntStateOf(5 * 60) }
-    var remainingSeconds by rememberSaveable { androidx.compose.runtime.mutableIntStateOf(totalSeconds) }
+    var hours by rememberSaveable { mutableIntStateOf(0) }
+    var minutes by rememberSaveable { mutableIntStateOf(5) }
+    var seconds by rememberSaveable { mutableIntStateOf(0) }
     var running by rememberSaveable { mutableStateOf(false) }
+    var armed by rememberSaveable { mutableStateOf(false) }   // カウントダウン中(実行/一時停止)
+    var remainingSeconds by rememberSaveable { mutableIntStateOf(0) }
+    var resetKey by rememberSaveable { mutableIntStateOf(0) }  // ホイールをプリセットに合わせて再描画する用
 
     LaunchedEffect(running) {
         while (running && remainingSeconds > 0) {
             delay(1000)
             remainingSeconds -= 1
         }
-        if (remainingSeconds <= 0) running = false
+        if (remainingSeconds <= 0) {
+            running = false
+            armed = false
+        }
     }
+
+    val configuredSeconds = hours * 3600 + minutes * 60 + seconds
 
     SectionCard(Modifier.fillMaxWidth()) {
         Column {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
                 Text("タイマー", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
-                StatusPill(if (running) "実行中" else "待機", if (running) PillLevel.OK else PillLevel.WARN)
+                StatusPill(if (running) "実行中" else if (armed) "一時停止" else "待機", if (running) PillLevel.OK else PillLevel.WARN)
             }
             Spacer(Modifier.height(8.dp))
-            Text(formatSeconds(remainingSeconds), style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
-            Spacer(Modifier.height(10.dp))
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                listOf(1, 5, 10, 30).forEach { minute ->
+
+            if (!armed) {
+                // 時・分・秒のホイールで任意の時間を設定。
+                key(resetKey) {
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        TimerWheel("時", 24, hours) { hours = it }
+                        TimerWheel("分", 60, minutes) { minutes = it }
+                        TimerWheel("秒", 60, seconds) { seconds = it }
+                    }
+                }
+                Spacer(Modifier.height(10.dp))
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listOf(1, 3, 5, 10).forEach { m ->
+                        OutlinedButton(
+                            onClick = { hours = 0; minutes = m; seconds = 0; resetKey++ },
+                            modifier = Modifier.weight(1f)
+                        ) { Text("${m}分") }
+                    }
+                }
+                Spacer(Modifier.height(10.dp))
+                Button(
+                    onClick = {
+                        remainingSeconds = configuredSeconds
+                        armed = true
+                        running = true
+                    },
+                    enabled = configuredSeconds > 0,
+                    modifier = Modifier.fillMaxWidth()
+                ) { Text("開始") }
+            } else {
+                Text(formatSeconds(remainingSeconds), style = MaterialTheme.typography.displayLarge, fontWeight = FontWeight.Bold)
+                Spacer(Modifier.height(10.dp))
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     OutlinedButton(
-                        onClick = {
-                            totalSeconds = minute * 60
-                            remainingSeconds = totalSeconds
-                            running = false
-                        },
+                        onClick = { running = false; armed = false; remainingSeconds = 0 },
                         modifier = Modifier.weight(1f)
-                    ) { Text("${minute}分") }
+                    ) { Text("キャンセル") }
+                    Button(
+                        onClick = { running = !running },
+                        modifier = Modifier.weight(1f)
+                    ) { Text(if (running) "一時停止" else "再開") }
                 }
             }
-            Spacer(Modifier.height(10.dp))
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                OutlinedButton(
-                    onClick = {
-                        running = false
-                        remainingSeconds = totalSeconds
-                    },
-                    modifier = Modifier.weight(1f)
-                ) { Text("リセット") }
-                Button(
-                    onClick = { running = !running },
-                    enabled = remainingSeconds > 0,
-                    modifier = Modifier.weight(1f)
-                ) { Text(if (running) "一時停止" else "開始") }
-            }
         }
+    }
+}
+
+@Composable
+private fun TimerWheel(label: String, count: Int, value: Int, onChange: (Int) -> Unit) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        WheelPicker(
+            items = (0 until count).map { it.toString().padStart(2, '0') },
+            initialIndex = value.coerceIn(0, count - 1),
+            modifier = Modifier.width(54.dp),
+            loop = true,
+            visibleCount = 3,
+            onSelectedIndex = onChange
+        )
+        Text(label, modifier = Modifier.padding(start = 2.dp, end = 8.dp),
+            color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
