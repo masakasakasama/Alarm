@@ -39,7 +39,7 @@ import com.galaxyalarm.update.UpdateChecker
 import kotlinx.coroutines.launch
 
 @Composable
-fun SettingsScreen(vm: MainViewModel, onOpenLog: () -> Unit) {
+fun SettingsScreen(vm: MainViewModel, onOpenLog: () -> Unit, onOpenReliability: () -> Unit = {}) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val backupStore = remember { GitHubBackupStore(context.applicationContext) }
@@ -56,6 +56,22 @@ fun SettingsScreen(vm: MainViewModel, onOpenLog: () -> Unit) {
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         Text("設定", style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
+
+        // 信頼性チェックは下タブから外したため、設定の最上部から開けるようにする。
+        SectionCard(Modifier.fillMaxWidth()) {
+            Column {
+                Text("信頼性チェック", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+                Text(
+                    "アラームが鳴らない原因(権限・予約欠落など)を点検します。",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(Modifier.height(8.dp))
+                Button(onClick = onOpenReliability, modifier = Modifier.fillMaxWidth()) {
+                    Text("信頼性チェックを開く")
+                }
+            }
+        }
 
         SectionCard(Modifier.fillMaxWidth()) {
             Column {
