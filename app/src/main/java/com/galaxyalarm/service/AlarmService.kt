@@ -110,10 +110,21 @@ class AlarmService : Service() {
                 // スタック最上段の音/バイブを再生。
                 player.stop()
                 player.start(alarm.soundMode, alarm.ringtoneUri, alarm.vibrationEnabled, alarm.vibrationPattern)
-                launchRingActivity(occ.id, alarm.id)
+                // 画面OFF/ロック中のみ全画面を直接起動。使用中は全画面で乗っ取らず、
+                // ヘッドアップ通知(停止/スヌーズボタン付き)のポップアップで操作してもらう。
+                if (shouldLaunchFullScreen()) {
+                    launchRingActivity(occ.id, alarm.id)
+                }
                 scheduleAutoStop(occ.id, alarm.autoStopMinutes)
             }
         }
+    }
+
+    /** 画面OFFまたはロック中なら全画面で起こす。使用中はヘッドアップ通知に任せる。 */
+    private fun shouldLaunchFullScreen(): Boolean {
+        val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
+        val km = getSystemService(Context.KEYGUARD_SERVICE) as android.app.KeyguardManager
+        return !pm.isInteractive || km.isKeyguardLocked
     }
 
     private fun launchRingActivity(occurrenceId: Long, alarmId: Long) {
