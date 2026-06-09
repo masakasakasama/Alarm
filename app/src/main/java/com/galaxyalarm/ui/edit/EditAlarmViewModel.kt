@@ -21,7 +21,7 @@ class EditAlarmViewModel(app: Application) : AndroidViewModel(app) {
     val draft = MutableStateFlow<AlarmItem?>(null)
     val groups = MutableStateFlow<List<AlarmGroup>>(emptyList())
 
-    fun load(alarmId: Long) = viewModelScope.launch {
+    fun load(alarmId: Long, presetGroupId: Long = 0L) = viewModelScope.launch {
         val ungroupedId = repo.ensureDefaultGroup()
         val allGroups = repo.getGroups()
         groups.value = allGroups
@@ -29,8 +29,14 @@ class EditAlarmViewModel(app: Application) : AndroidViewModel(app) {
             repo.getAlarm(alarmId)?.withoutSilent()
         } else {
             val now = Calendar.getInstance()
+            // グループ詳細から追加した場合はそのグループに所属させる。無ければ未グループ。
+            val targetGroup = if (presetGroupId > 0 && allGroups.any { it.id == presetGroupId }) {
+                presetGroupId
+            } else {
+                allGroups.firstOrNull { it.id == ungroupedId }?.id ?: ungroupedId
+            }
             AlarmItem(
-                groupId = allGroups.firstOrNull { it.id == ungroupedId }?.id ?: ungroupedId,
+                groupId = targetGroup,
                 hour = now.get(Calendar.HOUR_OF_DAY),
                 minute = now.get(Calendar.MINUTE)
             )

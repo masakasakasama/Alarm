@@ -43,8 +43,8 @@ import com.galaxyalarm.ui.components.WheelTimePicker
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun EditAlarmScreen(alarmId: Long, onDone: () -> Unit, vm: EditAlarmViewModel = viewModel()) {
-    LaunchedEffect(alarmId) { vm.load(alarmId) }
+fun EditAlarmScreen(alarmId: Long, groupId: Long = 0L, onDone: () -> Unit, vm: EditAlarmViewModel = viewModel()) {
+    LaunchedEffect(alarmId, groupId) { vm.load(alarmId, groupId) }
     val draft by vm.draft.collectAsStateWithLifecycle()
     val groups by vm.groups.collectAsStateWithLifecycle()
     val alarm = draft ?: return

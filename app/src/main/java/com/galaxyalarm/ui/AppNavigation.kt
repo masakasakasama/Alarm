@@ -107,7 +107,8 @@ fun AppNavigation() {
                 AlarmsScreen(
                     vm = mainVm,
                     groupId = groupId,
-                    onAddAlarm = { navController.navigate("edit/0") },
+                    // グループ詳細からの追加は、そのグループを初期所属にする。
+                    onAddAlarm = { navController.navigate("edit/0/$groupId") },
                     onEditAlarm = { id -> navController.navigate("edit/$id") },
                     onOpenGroup = { id -> navController.navigate("alarms/group/$id") }
                 )
@@ -122,6 +123,11 @@ fun AppNavigation() {
             composable("edit/{alarmId}") { entry ->
                 val id = entry.arguments?.getString("alarmId")?.toLongOrNull() ?: 0L
                 EditAlarmScreen(alarmId = id, onDone = { navController.popBackStack() })
+            }
+            composable("edit/{alarmId}/{groupId}") { entry ->
+                val id = entry.arguments?.getString("alarmId")?.toLongOrNull() ?: 0L
+                val gid = entry.arguments?.getString("groupId")?.toLongOrNull() ?: 0L
+                EditAlarmScreen(alarmId = id, groupId = gid, onDone = { navController.popBackStack() })
             }
         }
     }
