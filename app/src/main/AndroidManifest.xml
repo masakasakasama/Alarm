@@ -104,5 +104,17 @@
                 android:resource="@xml/next_alarm_widget_info" />
         </receiver>
 
+        <!-- 1x1 コンパクト版(ロック画面/ホーム両対応) -->
+        <receiver
+            android:name=".widget.NextAlarmSmallWidgetProvider"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/next_alarm_small_widget_info" />
+        </receiver>
+
     </application>
 </manifest>

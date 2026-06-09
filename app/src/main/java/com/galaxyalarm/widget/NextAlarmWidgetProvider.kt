@@ -24,10 +24,13 @@ class NextAlarmWidgetProvider : AppWidgetProvider() {
     }
 
     companion object {
+        /** 通常+1x1の両ウィジェットをまとめて更新する。 */
         fun refresh(context: Context) {
             val manager = AppWidgetManager.getInstance(context)
             val ids = manager.getAppWidgetIds(ComponentName(context, NextAlarmWidgetProvider::class.java))
             updateAll(context, manager, ids)
+            val smallIds = manager.getAppWidgetIds(ComponentName(context, NextAlarmSmallWidgetProvider::class.java))
+            updateAllSmall(context, manager, smallIds)
         }
 
         private fun updateAll(context: Context, manager: AppWidgetManager, ids: IntArray) {
@@ -38,6 +41,23 @@ class NextAlarmWidgetProvider : AppWidgetProvider() {
                     manager.updateAppWidget(id, buildView(context, next))
                 }
             }
+        }
+
+        internal fun updateAllSmall(context: Context, manager: AppWidgetManager, ids: IntArray) {
+            if (ids.isEmpty()) return
+            CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
+                val next = loadNextAlarm(context.applicationContext)
+                ids.forEach { id ->
+                    manager.updateAppWidget(id, buildSmallView(context, next))
+                }
+            }
+        }
+
+        private fun buildSmallView(context: Context, next: WidgetAlarm?): RemoteViews {
+            val views = RemoteViews(context.packageName, R.layout.widget_next_alarm_small)
+            views.setTextViewText(R.id.widget_small_time, next?.clock ?: "--:--")
+            views.setOnClickPendingIntent(R.id.widget_small_root, openAppIntent(context))
+            return views
         }
 
         private suspend fun loadNextAlarm(context: Context): WidgetAlarm? {
@@ -98,3 +118,10 @@ private data class WidgetAlarm(
     val label: String,
     val clock: String,
 )
+
+/** 1x1 のコンパクト版「次のアラーム」ウィジェット(⏰+時刻のみ)。 */
+class NextAlarmSmallWidgetProvider : AppWidgetProvider() {
+    override fun onUpdate(context: Context, appWidgetManager: AppWidgetManager, appWidgetIds: IntArray) {
+        NextAlarmWidgetProvider.updateAllSmall(context, appWidgetManager, appWidgetIds)
+    }
+}
