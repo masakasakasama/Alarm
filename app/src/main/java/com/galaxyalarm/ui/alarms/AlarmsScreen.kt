@@ -155,11 +155,11 @@ private fun GroupSummaryCard(row: GroupRow, onOpen: () -> Unit, onToggle: (Boole
                 Text("有効 ${row.enabledCount} / 全 ${row.totalCount} 件", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Spacer(Modifier.height(6.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    StatusPill(if (row.group.enabled) "ON" else "OFF", if (row.group.enabled) PillLevel.OK else PillLevel.WARN)
+                    StatusPill(if (row.isOn) "ON" else "OFF", if (row.isOn) PillLevel.OK else PillLevel.WARN)
                     Text("次回 " + TimeFormat.nextTrigger(row.nextTriggerAt), color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
-            Switch(checked = row.group.enabled, onCheckedChange = onToggle)
+            Switch(checked = row.isOn, onCheckedChange = onToggle)
             Icon(Icons.Filled.ChevronRight, contentDescription = "開く")
         }
     }

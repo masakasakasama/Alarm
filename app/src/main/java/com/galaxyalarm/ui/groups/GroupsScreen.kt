@@ -109,7 +109,7 @@ private fun GroupCard(
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
-                Switch(checked = row.group.enabled, onCheckedChange = onToggle)
+                Switch(checked = row.isOn, onCheckedChange = onToggle)
             }
             Spacer(Modifier.height(8.dp))
             Row(
@@ -117,7 +117,7 @@ private fun GroupCard(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                if (row.group.enabled) {
+                if (row.isOn) {
                     Text("次回 " + TimeFormat.nextTrigger(row.nextTriggerAt), style = MaterialTheme.typography.bodyMedium)
                 } else {
                     StatusPill("OFF", PillLevel.WARN)

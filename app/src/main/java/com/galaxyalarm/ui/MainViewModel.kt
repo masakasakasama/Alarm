@@ -26,7 +26,10 @@ data class GroupRow(
     val enabledCount: Int,
     val totalCount: Int,
     val nextTriggerAt: Long?,
-)
+) {
+    val isOn: Boolean
+        get() = enabledCount > 0
+}
 
 data class AlarmRow(
     val alarm: AlarmItem,
@@ -52,7 +55,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             groups.filterNot { AlarmRepository.isDefaultGroupName(it.name) }.map { g ->
                 val inGroup = alarms.filter { it.groupId == g.id }
                 val enabled = inGroup.filter { it.enabled }
-                val next = if (g.enabled && permissions.canScheduleExactAlarms()) {
+                val next = if (g.enabled && enabled.isNotEmpty() && permissions.canScheduleExactAlarms()) {
                     enabled.mapNotNull { nextOf(it) }.minOrNull()
                 } else null
                 GroupRow(g, enabled.size, inGroup.size, next)
