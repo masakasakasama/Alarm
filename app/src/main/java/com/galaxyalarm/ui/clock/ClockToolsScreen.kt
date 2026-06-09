@@ -43,62 +43,79 @@ import java.text.SimpleDateFormat
 import java.util.Locale
 import java.util.TimeZone
 
+/** タイマー専用タブ。 */
 @Composable
-fun ClockToolsScreen(
-    vm: MainViewModel,
-    onAddAlarm: () -> Unit,
-) {
-    val nextAlarm by vm.nextAlarmRow.collectAsStateWithLifecycle()
-    var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
-
-    LaunchedEffect(Unit) {
-        while (true) {
-            now = System.currentTimeMillis()
-            delay(1000)
-        }
-    }
-
+fun TimerScreen() {
     LazyColumn(
         modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
         contentPadding = PaddingValues(vertical = 16.dp)
     ) {
         item {
-            Text("時計", style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
+            Text("タイマー", style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
         }
-        item {
-            SectionCard(Modifier.fillMaxWidth()) {
-                Column {
-                    Text(formatLocalDate(now), color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text(formatLocalTime(now), style = MaterialTheme.typography.displayLarge, fontWeight = FontWeight.Bold)
-                }
-            }
-        }
-        item {
-            SectionCard(Modifier.fillMaxWidth()) {
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) {
-                        Text("次のアラーム", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        if (nextAlarm == null) {
-                            Text("予定なし", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
-                            Text("ウィジェットにもこの状態が表示されます", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        } else {
-                            val row = nextAlarm!!
-                            Text(TimeFormat.nextTrigger(row.nextTriggerAt), style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
-                            Text(
-                                "${TimeFormat.hourMinute12(row.alarm.hour, row.alarm.minute)} ・ ${row.alarm.label.ifBlank { row.groupName }}",
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
-                    TextButton(onClick = onAddAlarm) { Text("+ 追加") }
-                }
-            }
-        }
-        item { WorldClockBlock(now) }
-        item { StopwatchBlock() }
         item { TimerBlock() }
     }
+}
+
+/** ストップウォッチ専用タブ。 */
+@Composable
+fun StopwatchScreen() {
+    LazyColumn(
+        modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+        contentPadding = PaddingValues(vertical = 16.dp)
+    ) {
+        item {
+            Text("ストップウォッチ", style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
+        }
+        item { StopwatchBlock() }
+    }
+}
+
+/** アラームタブ上部に出す「現在時刻+次のアラーム」カード。 */
+@Composable
+fun NowAndNextAlarmCard(vm: MainViewModel, onAddAlarm: () -> Unit) {
+    val nextAlarm by vm.nextAlarmRow.collectAsStateWithLifecycle()
+    var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            now = System.currentTimeMillis()
+            delay(1000)
+        }
+    }
+    SectionCard(Modifier.fillMaxWidth()) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text(formatLocalDate(now), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(formatLocalTime(now), style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
+                Spacer(Modifier.height(6.dp))
+                if (nextAlarm == null) {
+                    Text("次のアラーム: 予定なし", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                } else {
+                    val row = nextAlarm!!
+                    Text(
+                        "次のアラーム: ${TimeFormat.nextTrigger(row.nextTriggerAt)} ・ ${row.alarm.label.ifBlank { row.groupName }}",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+            TextButton(onClick = onAddAlarm) { Text("+ 追加") }
+        }
+    }
+}
+
+/** アラームタブ上部に出す世界時計カード。 */
+@Composable
+fun WorldClockCard() {
+    var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            now = System.currentTimeMillis()
+            delay(1000)
+        }
+    }
+    WorldClockBlock(now)
 }
 
 @Composable
@@ -147,7 +164,7 @@ private fun StopwatchBlock() {
                 StatusPill(if (running) "計測中" else "停止", if (running) PillLevel.OK else PillLevel.WARN)
             }
             Spacer(Modifier.height(8.dp))
-            Text(formatDuration(displayElapsed), style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
+            Text(formatDuration(displayElapsed), style = MaterialTheme.typography.displayLarge, fontWeight = FontWeight.Bold)
             Spacer(Modifier.height(10.dp))
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 OutlinedButton(
@@ -175,7 +192,7 @@ private fun StopwatchBlock() {
                     modifier = Modifier.weight(1f)
                 ) { Text(if (running) "停止" else "開始") }
             }
-            laps.take(3).forEachIndexed { index, lap ->
+            laps.take(5).forEachIndexed { index, lap ->
                 Spacer(Modifier.height(8.dp))
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                     Text("ラップ ${laps.size - index}", color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -216,7 +233,7 @@ private fun TimerBlock() {
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text("タイマー", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+                Text("カウントダウン", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
                 StatusPill(if (running) "実行中" else if (armed) "一時停止" else "待機", if (running) PillLevel.OK else PillLevel.WARN)
             }
             Spacer(Modifier.height(8.dp))

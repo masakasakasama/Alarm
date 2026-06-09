@@ -31,6 +31,8 @@ import com.galaxyalarm.data.repo.AlarmRepository
 import com.galaxyalarm.ui.AlarmRow
 import com.galaxyalarm.ui.GroupRow
 import com.galaxyalarm.ui.MainViewModel
+import com.galaxyalarm.ui.clock.NowAndNextAlarmCard
+import com.galaxyalarm.ui.clock.WorldClockCard
 import com.galaxyalarm.ui.TimeFormat
 import com.galaxyalarm.ui.components.PillLevel
 import com.galaxyalarm.ui.components.SectionCard
@@ -77,6 +79,11 @@ fun AlarmsScreen(
             }
         }
 
+        // トップレベル表示のときは現在時刻+次のアラームを上部に出す(旧・時計タブの内容)。
+        if (!showingGroup) {
+            item { NowAndNextAlarmCard(vm = vm, onAddAlarm = onAddAlarm) }
+        }
+
         items(rows, key = { it.alarm.id }) { row ->
             AlarmCard(
                 row = row,
@@ -110,6 +117,11 @@ fun AlarmsScreen(
                     onToggle = { vm.toggleGroup(row.group, it) }
                 )
             }
+        }
+
+        // 世界時計は一覧の最後に置く(旧・時計タブの内容)。
+        if (!showingGroup) {
+            item { WorldClockCard() }
         }
     }
 }
