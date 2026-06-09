@@ -131,3 +131,5 @@ sdk.dir=/path/to/Android/sdk
 <!-- release retrigger: v1.2.0 (full-screen intent fix) -->
 
 <!-- retrigger v1.2.5 -->
+
+<!-- retrigger v1.2.6 -->
