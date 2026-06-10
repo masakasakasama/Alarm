@@ -1,5 +1,7 @@
 package com.galaxyalarm.ui.alarms
 
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -90,7 +92,8 @@ fun AlarmsScreen(
             AlarmCard(
                 row = row,
                 onToggle = { vm.toggleAlarm(row.alarm, it) },
-                onClick = { onEditAlarm(row.alarm.id) }
+                onClick = { onEditAlarm(row.alarm.id) },
+                onLongClick = { vm.duplicateAlarm(row.alarm) }
             )
         }
 
@@ -128,9 +131,13 @@ fun AlarmsScreen(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun AlarmCard(row: AlarmRow, onToggle: (Boolean) -> Unit, onClick: () -> Unit) {
-    SectionCard(modifier = Modifier.fillMaxWidth(), onClick = onClick) {
+private fun AlarmCard(row: AlarmRow, onToggle: (Boolean) -> Unit, onClick: () -> Unit, onLongClick: () -> Unit) {
+    // タップで編集、長押しで複製。
+    SectionCard(
+        modifier = Modifier.fillMaxWidth().combinedClickable(onClick = onClick, onLongClick = onLongClick)
+    ) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Text(
