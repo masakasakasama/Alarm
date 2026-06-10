@@ -53,6 +53,7 @@ class AlarmService : Service() {
             AlarmIntents.ACTION_STOP -> handleStop(intent.getLongExtra(AlarmIntents.EXTRA_OCCURRENCE_ID, -1))
             AlarmIntents.ACTION_SNOOZE -> handleSnooze(intent.getLongExtra(AlarmIntents.EXTRA_OCCURRENCE_ID, -1))
             AlarmIntents.ACTION_STOP_ALL -> handleStopAll()
+            AlarmIntents.ACTION_TIMER_FIRE -> handleTimerFire()
             else -> {}
         }
         return START_STICKY
@@ -117,6 +118,38 @@ class AlarmService : Service() {
                 }
                 scheduleAutoStop(occ.id, alarm.autoStopMinutes)
             }
+        }
+    }
+
+    /** タイマー発火: DBアラームに依存せず鳴らす。停止は ACTION_STOP(同sentinel id)で処理。 */
+    private fun handleTimerFire() {
+        acquireWakeLock()
+        com.galaxyalarm.timer.TimerController.onFired(this)
+        val id = com.galaxyalarm.timer.TimerController.TIMER_OCCURRENCE_ID
+        handler.post {
+            ActiveAlarms.push(ActiveAlarm(id, -1L, "タイマー", "タイマー終了"))
+            startForeground(
+                NotificationHelper.FOREGROUND_ID,
+                notifier.buildAlarmNotification(id, -1L, "タイマー", "タイマー終了")
+            )
+            player.stop()
+            player.start(
+                com.galaxyalarm.data.model.SoundMode.SOUND,
+                null,
+                true,
+                com.galaxyalarm.data.model.VibrationPattern.SHORT
+            )
+            if (shouldLaunchFullScreen()) launchRingActivity(id, -1L)
+            scheduleAutoStop(id, 5)
+        }
+        scope.launch {
+            container.repository.log(
+                AlarmEventLog(
+                    alarmId = null, groupId = null,
+                    scheduledAtMillis = null, firedAtMillis = System.currentTimeMillis(), delayMs = null,
+                    result = EventResult.FIRED, message = "タイマー終了"
+                )
+            )
         }
     }
 

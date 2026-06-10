@@ -35,6 +35,7 @@ import com.galaxyalarm.ui.GroupRow
 import com.galaxyalarm.ui.MainViewModel
 import com.galaxyalarm.ui.clock.NextAlarmCard
 import com.galaxyalarm.ui.clock.NowCard
+import com.galaxyalarm.ui.clock.RunningTimerCard
 import com.galaxyalarm.ui.clock.WorldClockCard
 import com.galaxyalarm.ui.TimeFormat
 import com.galaxyalarm.ui.components.PillLevel
@@ -86,6 +87,7 @@ fun AlarmsScreen(
         if (!showingGroup) {
             item { NowCard() }
             item { NextAlarmCard(vm = vm, onAddAlarm = onAddAlarm) }
+            item { RunningTimerCard() }
         }
 
         items(rows, key = { it.alarm.id }) { row ->

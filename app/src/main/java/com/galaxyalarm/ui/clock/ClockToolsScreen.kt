@@ -29,9 +29,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.galaxyalarm.timer.StopwatchController
+import com.galaxyalarm.timer.TimerController
 import com.galaxyalarm.ui.MainViewModel
 import com.galaxyalarm.ui.TimeFormat
 import com.galaxyalarm.ui.components.PillLevel
@@ -185,18 +188,17 @@ private fun WorldClockBlock(now: Long) {
 
 @Composable
 private fun StopwatchBlock() {
-    var running by rememberSaveable { mutableStateOf(false) }
-    var baseElapsed by rememberSaveable { mutableLongStateOf(0L) }
-    var startedAt by rememberSaveable { mutableLongStateOf(0L) }
-    var displayElapsed by remember { mutableLongStateOf(0L) }
-    val laps = remember { mutableStateListOf<Long>() }
+    // 状態はシングルトンに保持(タブ移動で消えない)。
+    val running by StopwatchController.running.collectAsStateWithLifecycle()
+    val laps by StopwatchController.laps.collectAsStateWithLifecycle()
+    var display by remember { mutableLongStateOf(StopwatchController.elapsed()) }
 
-    LaunchedEffect(running, baseElapsed, startedAt) {
-        while (running) {
-            displayElapsed = baseElapsed + (System.currentTimeMillis() - startedAt)
+    LaunchedEffect(running) {
+        do {
+            display = StopwatchController.elapsed()
             delay(50)
-        }
-        if (!running) displayElapsed = baseElapsed
+        } while (running)
+        display = StopwatchController.elapsed()
     }
 
     SectionCard(Modifier.fillMaxWidth()) {
@@ -206,31 +208,15 @@ private fun StopwatchBlock() {
                 StatusPill(if (running) "計測中" else "停止", if (running) PillLevel.OK else PillLevel.WARN)
             }
             Spacer(Modifier.height(8.dp))
-            Text(formatDuration(displayElapsed), style = MaterialTheme.typography.displayLarge, fontWeight = FontWeight.Bold)
+            Text(formatDuration(display), style = MaterialTheme.typography.displayLarge, fontWeight = FontWeight.Bold)
             Spacer(Modifier.height(10.dp))
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 OutlinedButton(
-                    onClick = {
-                        if (running) {
-                            laps.add(0, displayElapsed)
-                        } else {
-                            baseElapsed = 0L
-                            displayElapsed = 0L
-                            laps.clear()
-                        }
-                    },
+                    onClick = { StopwatchController.lapOrReset() },
                     modifier = Modifier.weight(1f)
                 ) { Text(if (running) "ラップ" else "リセット") }
                 Button(
-                    onClick = {
-                        if (running) {
-                            baseElapsed = displayElapsed
-                            running = false
-                        } else {
-                            startedAt = System.currentTimeMillis()
-                            running = true
-                        }
-                    },
+                    onClick = { StopwatchController.startStop() },
                     modifier = Modifier.weight(1f)
                 ) { Text(if (running) "停止" else "開始") }
             }
@@ -247,25 +233,22 @@ private fun StopwatchBlock() {
 
 @Composable
 private fun TimerBlock() {
+    val context = LocalContext.current
+    val endAt by TimerController.endAt.collectAsStateWithLifecycle()
+    var nowTick by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(endAt) {
+        while (endAt > 0L) {
+            nowTick = System.currentTimeMillis()
+            delay(250)
+        }
+    }
+    val running = endAt > nowTick
+    val remaining = ((endAt - nowTick) / 1000L).toInt().coerceAtLeast(0)
+
     var hours by rememberSaveable { mutableIntStateOf(0) }
     var minutes by rememberSaveable { mutableIntStateOf(5) }
     var seconds by rememberSaveable { mutableIntStateOf(0) }
-    var running by rememberSaveable { mutableStateOf(false) }
-    var armed by rememberSaveable { mutableStateOf(false) }   // カウントダウン中(実行/一時停止)
-    var remainingSeconds by rememberSaveable { mutableIntStateOf(0) }
-    var resetKey by rememberSaveable { mutableIntStateOf(0) }  // ホイールをプリセットに合わせて再描画する用
-
-    LaunchedEffect(running) {
-        while (running && remainingSeconds > 0) {
-            delay(1000)
-            remainingSeconds -= 1
-        }
-        if (remainingSeconds <= 0) {
-            running = false
-            armed = false
-        }
-    }
-
+    var resetKey by rememberSaveable { mutableIntStateOf(0) }
     val configuredSeconds = hours * 3600 + minutes * 60 + seconds
 
     SectionCard(Modifier.fillMaxWidth()) {
@@ -276,12 +259,11 @@ private fun TimerBlock() {
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text("カウントダウン", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
-                StatusPill(if (running) "実行中" else if (armed) "一時停止" else "待機", if (running) PillLevel.OK else PillLevel.WARN)
+                StatusPill(if (running) "実行中" else "待機", if (running) PillLevel.OK else PillLevel.WARN)
             }
             Spacer(Modifier.height(8.dp))
 
-            if (!armed) {
-                // 時・分・秒のホイールで任意の時間を設定。
+            if (!running) {
                 key(resetKey) {
                     Row(
                         Modifier.fillMaxWidth(),
@@ -304,28 +286,45 @@ private fun TimerBlock() {
                 }
                 Spacer(Modifier.height(10.dp))
                 Button(
-                    onClick = {
-                        remainingSeconds = configuredSeconds
-                        armed = true
-                        running = true
-                    },
+                    onClick = { TimerController.start(context, configuredSeconds) },
                     enabled = configuredSeconds > 0,
                     modifier = Modifier.fillMaxWidth()
                 ) { Text("開始") }
             } else {
-                Text(formatSeconds(remainingSeconds), style = MaterialTheme.typography.displayLarge, fontWeight = FontWeight.Bold)
+                Text(formatSeconds(remaining), style = MaterialTheme.typography.displayLarge, fontWeight = FontWeight.Bold)
+                Text("時間が来たらアラームとして鳴ります(タブを移動しても継続)",
+                    style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Spacer(Modifier.height(10.dp))
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    OutlinedButton(
-                        onClick = { running = false; armed = false; remainingSeconds = 0 },
-                        modifier = Modifier.weight(1f)
-                    ) { Text("キャンセル") }
-                    Button(
-                        onClick = { running = !running },
-                        modifier = Modifier.weight(1f)
-                    ) { Text(if (running) "一時停止" else "再開") }
-                }
+                Button(
+                    onClick = { TimerController.cancel(context) },
+                    modifier = Modifier.fillMaxWidth()
+                ) { Text("キャンセル") }
             }
+        }
+    }
+}
+
+/** アラームタブ(ホーム)に出す「実行中タイマー」カード。実行中のみ表示。 */
+@Composable
+fun RunningTimerCard() {
+    val context = LocalContext.current
+    val endAt by TimerController.endAt.collectAsStateWithLifecycle()
+    var nowTick by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(endAt) {
+        while (endAt > 0L) {
+            nowTick = System.currentTimeMillis()
+            delay(250)
+        }
+    }
+    if (endAt <= nowTick) return
+    val remaining = ((endAt - nowTick) / 1000L).toInt().coerceAtLeast(0)
+    SectionCard(Modifier.fillMaxWidth()) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("タイマー実行中", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(formatSeconds(remaining), style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+            }
+            OutlinedButton(onClick = { TimerController.cancel(context) }) { Text("キャンセル") }
         }
     }
 }

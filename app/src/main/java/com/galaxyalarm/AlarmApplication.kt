@@ -50,6 +50,8 @@ class AlarmApplication : Application() {
         instance = this
         container = AppContainer(this)
         NotificationHelper(this).createChannels()
+        // 実行中タイマーを復元(タブ移動・アプリ終了をまたいで生存)。
+        runCatching { com.galaxyalarm.timer.TimerController.init(this) }
 
         // アプリ起動時: 既定グループ確保 → 全再スケジュール → 健全性チェック。
         appScope.launch {
