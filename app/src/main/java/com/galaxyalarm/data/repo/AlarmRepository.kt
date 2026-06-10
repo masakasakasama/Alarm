@@ -119,6 +119,8 @@ class AlarmRepository(
                 PresetAlarm(8, 25),
                 PresetAlarm(8, 30),
             )),
+            // 飛行機(フライト用)。時刻は未定のため空グループとして用意。
+            PresetGroup("飛行機", emptyList()),
         )
 
         val groupsByName = groupDao.getAll().associateBy { it.name }.toMutableMap()

@@ -103,6 +103,12 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     fun deleteAlarm(alarm: AlarmItem) = viewModelScope.launch { repo.deleteAlarm(alarm); refreshWidgets(); runCheck(); backupIfConfigured() }
 
+    /** アラームを複製(長押し用)。同じグループに同設定のコピーを作る。 */
+    fun duplicateAlarm(alarm: AlarmItem) = viewModelScope.launch {
+        repo.saveAlarm(alarm.copy(id = 0L))
+        refreshWidgets(); runCheck(); backupIfConfigured()
+    }
+
     /** 権限付与後など、全再スケジュール。 */
     fun rescheduleAll() = viewModelScope.launch { repo.rescheduleAll("ui-request"); refreshWidgets(); runCheck() }
 
