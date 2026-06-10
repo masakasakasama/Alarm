@@ -73,6 +73,48 @@ fun StopwatchScreen() {
     }
 }
 
+/** 現在時刻(日付+大きな時計)だけのカード。 */
+@Composable
+fun NowCard() {
+    var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            now = System.currentTimeMillis()
+            delay(1000)
+        }
+    }
+    SectionCard(Modifier.fillMaxWidth()) {
+        Column {
+            Text(formatLocalDate(now), color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(formatLocalTime(now), style = MaterialTheme.typography.displayLarge, fontWeight = FontWeight.Bold)
+        }
+    }
+}
+
+/** 次のアラームだけのカード(現在時刻とは別に表示)。 */
+@Composable
+fun NextAlarmCard(vm: MainViewModel, onAddAlarm: () -> Unit) {
+    val nextAlarm by vm.nextAlarmRow.collectAsStateWithLifecycle()
+    SectionCard(Modifier.fillMaxWidth()) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("次のアラーム", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                if (nextAlarm == null) {
+                    Text("予定なし", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+                } else {
+                    val row = nextAlarm!!
+                    Text(TimeFormat.nextTrigger(row.nextTriggerAt), style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+                    Text(
+                        "${TimeFormat.hourMinute12(row.alarm.hour, row.alarm.minute)} ・ ${row.alarm.label.ifBlank { row.groupName }}",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+            TextButton(onClick = onAddAlarm) { Text("+ 追加") }
+        }
+    }
+}
+
 /** アラームタブ上部に出す「現在時刻+次のアラーム」カード。 */
 @Composable
 fun NowAndNextAlarmCard(vm: MainViewModel, onAddAlarm: () -> Unit) {
