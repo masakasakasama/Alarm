@@ -15,6 +15,8 @@ class SystemEventReceiver : BroadcastReceiver() {
         val action = intent.action ?: return
         Log.i(TAG, "system event: $action")
         ScheduleHealthWorker.runSoon(context, "system:$action")
+        // 端末再起動などで失われたタイマー予約を復元。
+        runCatching { com.galaxyalarm.timer.TimerController.init(context) }
 
         val app = context.applicationContext as AlarmApplication
         val pending = goAsync()
