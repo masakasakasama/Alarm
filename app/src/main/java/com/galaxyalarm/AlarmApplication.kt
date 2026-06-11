@@ -55,8 +55,18 @@ class AlarmApplication : Application() {
 
         // アプリ起動時: 既定グループ確保 → 全再スケジュール → 健全性チェック。
         appScope.launch {
+            // プリセット群は「初回・かつグループが1つも無いとき」だけ投入する。
+            // 一度削除したプリセットがアプリ更新で復活しないようにフラグで一度きりにする。
+            // (ensureDefaultGroup より前に判定すること。既定グループ作成で count が増えるため)
+            if (!container.reliabilityStore.presetsSeeded) {
+                // 「過去に一度も起動していない=真の初回」のみ投入。
+                // lastCheckAt は過去の起動で必ずセットされるので、削除済みでも復活しない。
+                if (container.reliabilityStore.lastCheckAt == 0L) {
+                    container.repository.ensureImagePresetGroups()
+                }
+                container.reliabilityStore.presetsSeeded = true
+            }
             container.repository.ensureDefaultGroup()
-            container.repository.ensureImagePresetGroups()
             val fingerprint = Build.FINGERPRINT ?: ""
             val reason = if (
                 container.reliabilityStore.lastBuildFingerprint.isNotBlank() &&

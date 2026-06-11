@@ -66,6 +66,27 @@ fun ReliabilityScreen(vm: MainViewModel, onOpenLog: () -> Unit) {
                 OutlinedButton(onClick = { vm.runCheck() }, modifier = Modifier.weight(1f)) { Text("再チェック") }
             }
         }
+        item {
+            SectionCard(Modifier.fillMaxWidth()) {
+                Column {
+                    Text("テスト鳴動", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+                    Text(
+                        "今すぐ鳴らして、音・全画面表示・通知が出るか確認します。停止ボタンで止まります。",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Button(
+                        onClick = {
+                            val i = android.content.Intent(context, com.galaxyalarm.service.AlarmService::class.java)
+                                .setAction(com.galaxyalarm.scheduler.AlarmIntents.ACTION_TEST_FIRE)
+                            androidx.core.content.ContextCompat.startForegroundService(context, i)
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) { Text("今すぐテスト鳴動") }
+                }
+            }
+        }
         report?.let { r ->
             items(r.items) { item -> CheckRow(item, context) }
             item {

@@ -14,6 +14,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Switch
@@ -21,6 +22,9 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -61,6 +65,7 @@ fun AlarmsScreen(
         allRows.filter { AlarmRepository.isDefaultGroupName(it.groupName) }
     }
     val groupedRows = if (showingGroup) emptyList() else groupRows.filter { it.totalCount > 0 }
+    var actionTarget by remember { mutableStateOf<AlarmRow?>(null) }
 
     LazyColumn(
         Modifier.fillMaxWidth().padding(horizontal = 16.dp),
@@ -95,7 +100,7 @@ fun AlarmsScreen(
                 row = row,
                 onToggle = { vm.toggleAlarm(row.alarm, it) },
                 onClick = { onEditAlarm(row.alarm.id) },
-                onLongClick = { vm.duplicateAlarm(row.alarm) }
+                onLongClick = { actionTarget = row }
             )
         }
 
@@ -130,6 +135,26 @@ fun AlarmsScreen(
         if (!showingGroup) {
             item { WorldClockCard() }
         }
+    }
+
+    // 長押しメニュー: 複製 / 削除
+    actionTarget?.let { target ->
+        AlertDialog(
+            onDismissRequest = { actionTarget = null },
+            title = { Text(TimeFormat.hourMinute12(target.alarm.hour, target.alarm.minute) + " のアラーム") },
+            text = { Text("操作を選んでください。") },
+            confirmButton = {
+                TextButton(onClick = { vm.duplicateAlarm(target.alarm); actionTarget = null }) { Text("複製") }
+            },
+            dismissButton = {
+                Row {
+                    TextButton(onClick = { vm.deleteAlarm(target.alarm); actionTarget = null }) {
+                        Text("削除", color = MaterialTheme.colorScheme.error)
+                    }
+                    TextButton(onClick = { actionTarget = null }) { Text("キャンセル") }
+                }
+            }
+        )
     }
 }
 
