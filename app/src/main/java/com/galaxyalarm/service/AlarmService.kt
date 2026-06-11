@@ -54,6 +54,7 @@ class AlarmService : Service() {
             AlarmIntents.ACTION_SNOOZE -> handleSnooze(intent.getLongExtra(AlarmIntents.EXTRA_OCCURRENCE_ID, -1))
             AlarmIntents.ACTION_STOP_ALL -> handleStopAll()
             AlarmIntents.ACTION_TIMER_FIRE -> handleTimerFire()
+            AlarmIntents.ACTION_TEST_FIRE -> handleTestFire()
             else -> {}
         }
         return START_STICKY
@@ -123,14 +124,23 @@ class AlarmService : Service() {
 
     /** タイマー発火: DBアラームに依存せず鳴らす。停止は ACTION_STOP(同sentinel id)で処理。 */
     private fun handleTimerFire() {
-        acquireWakeLock()
         com.galaxyalarm.timer.TimerController.onFired(this)
-        val id = com.galaxyalarm.timer.TimerController.TIMER_OCCURRENCE_ID
+        ringTransient(com.galaxyalarm.timer.TimerController.TIMER_OCCURRENCE_ID, "タイマー", "タイマー終了")
+    }
+
+    /** テスト鳴動: 信頼性チェックから即時に鳴らして経路(音/全画面/通知)を確認する。 */
+    private fun handleTestFire() {
+        ringTransient(TEST_OCCURRENCE_ID, "テスト鳴動", "テスト鳴動")
+    }
+
+    /** DBに依存しない一時的な鳴動(タイマー/テスト共通)。 */
+    private fun ringTransient(id: Long, label: String, timeText: String) {
+        acquireWakeLock()
         handler.post {
-            ActiveAlarms.push(ActiveAlarm(id, -1L, "タイマー", "タイマー終了"))
+            ActiveAlarms.push(ActiveAlarm(id, -1L, label, timeText))
             startForeground(
                 NotificationHelper.FOREGROUND_ID,
-                notifier.buildAlarmNotification(id, -1L, "タイマー", "タイマー終了")
+                notifier.buildAlarmNotification(id, -1L, label, timeText)
             )
             player.stop()
             player.start(
@@ -147,7 +157,7 @@ class AlarmService : Service() {
                 AlarmEventLog(
                     alarmId = null, groupId = null,
                     scheduledAtMillis = null, firedAtMillis = System.currentTimeMillis(), delayMs = null,
-                    result = EventResult.FIRED, message = "タイマー終了"
+                    result = EventResult.FIRED, message = label
                 )
             )
         }
@@ -279,6 +289,7 @@ class AlarmService : Service() {
 
     companion object {
         private const val TAG = "AlarmService"
+        private const val TEST_OCCURRENCE_ID = -2000L
         private val timeFmt = SimpleDateFormat("HH:mm", Locale.JAPAN)
         fun fmt(t: Long) = timeFmt.format(Date(t))
     }

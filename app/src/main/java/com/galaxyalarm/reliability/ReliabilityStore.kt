@@ -28,4 +28,9 @@ class ReliabilityStore(context: Context) {
     var lastBuildFingerprint: String
         get() = sp.getString("lastBuildFingerprint", "") ?: ""
         set(v) = sp.edit().putString("lastBuildFingerprint", v).apply()
+
+    /** プリセット群(電車内・飛行機など)を初回に一度だけ投入したか。削除したものを復活させないため。 */
+    var presetsSeeded: Boolean
+        get() = sp.getBoolean("presetsSeeded", false)
+        set(v) = sp.edit().putBoolean("presetsSeeded", v).apply()
 }
