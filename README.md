@@ -147,3 +147,5 @@ sdk.dir=/path/to/Android/sdk
 <!-- retrigger v1.5.0 -->
 
 <!-- retrigger v1.6.0 -->
+
+<!-- retrigger v1.7.0 (タイマー: 音なし選択 / 履歴 / 実行中通知) -->
