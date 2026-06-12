@@ -50,7 +50,59 @@ class NotificationHelper(private val context: Context) {
             description = "OS更新や権限変更でアラームが鳴らない恐れがある時の警告"
             lockscreenVisibility = Notification.VISIBILITY_PUBLIC
         }
-        nm.createNotificationChannels(listOf(alarm, service, health, alerts))
+        val timer = NotificationChannel(
+            CHANNEL_TIMER,
+            "タイマー",
+            NotificationManager.IMPORTANCE_LOW
+        ).apply {
+            description = "実行中タイマーの残り時間表示"
+            setSound(null, null)
+            enableVibration(false)
+            setShowBadge(false)
+            lockscreenVisibility = Notification.VISIBILITY_PUBLIC
+        }
+        nm.createNotificationChannels(listOf(alarm, service, health, alerts, timer))
+    }
+
+    /** 実行中タイマーの常駐通知。残り時間をカウントダウン表示し、キャンセル操作を提供する。 */
+    fun showTimerNotification(endAt: Long, soundOn: Boolean) {
+        val openPi = PendingIntent.getActivity(
+            context,
+            7100,
+            Intent(context, MainActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            },
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        val cancelPi = PendingIntent.getBroadcast(
+            context,
+            7101,
+            Intent(context, AlarmReceiver::class.java).apply {
+                action = AlarmIntents.ACTION_TIMER_CANCEL
+            },
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        val notification = NotificationCompat.Builder(context, CHANNEL_TIMER)
+            .setSmallIcon(R.drawable.ic_launcher_foreground)
+            .setContentTitle("タイマー実行中")
+            .setContentText(if (soundOn) "終了時にアラームが鳴ります" else "終了時は音なし(バイブのみ)")
+            .setUsesChronometer(true)
+            .setChronometerCountDown(true)
+            .setWhen(endAt)
+            .setShowWhen(true)
+            .setOngoing(true)
+            .setOnlyAlertOnce(true)
+            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setCategory(NotificationCompat.CATEGORY_PROGRESS)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .setContentIntent(openPi)
+            .addAction(Action.Builder(0, "キャンセル", cancelPi).build())
+            .build()
+        runCatching { nm.notify(TIMER_ID, notification) }
+    }
+
+    fun cancelTimerNotification() {
+        runCatching { nm.cancel(TIMER_ID) }
     }
 
     fun buildLoadingNotification(): Notification =
@@ -147,7 +199,9 @@ class NotificationHelper(private val context: Context) {
         const val CHANNEL_SERVICE = "alarm_service"
         const val CHANNEL_HEALTH = "schedule_health"
         const val CHANNEL_RELIABILITY_ALERT = "alarm_reliability_alerts"
+        const val CHANNEL_TIMER = "timer_running"
         const val FOREGROUND_ID = 42
         const val RELIABILITY_ALERT_ID = 43
+        const val TIMER_ID = 44
     }
 }

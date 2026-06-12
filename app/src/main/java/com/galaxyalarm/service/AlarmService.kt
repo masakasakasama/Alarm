@@ -53,7 +53,9 @@ class AlarmService : Service() {
             AlarmIntents.ACTION_STOP -> handleStop(intent.getLongExtra(AlarmIntents.EXTRA_OCCURRENCE_ID, -1))
             AlarmIntents.ACTION_SNOOZE -> handleSnooze(intent.getLongExtra(AlarmIntents.EXTRA_OCCURRENCE_ID, -1))
             AlarmIntents.ACTION_STOP_ALL -> handleStopAll()
-            AlarmIntents.ACTION_TIMER_FIRE -> handleTimerFire()
+            AlarmIntents.ACTION_TIMER_FIRE -> handleTimerFire(
+                intent.getBooleanExtra(AlarmIntents.EXTRA_TIMER_SOUND, true)
+            )
             AlarmIntents.ACTION_TEST_FIRE -> handleTestFire()
             else -> {}
         }
@@ -122,19 +124,26 @@ class AlarmService : Service() {
         }
     }
 
-    /** タイマー発火: DBアラームに依存せず鳴らす。停止は ACTION_STOP(同sentinel id)で処理。 */
-    private fun handleTimerFire() {
+    /** タイマー発火: DBアラームに依存せず鳴らす。音なし設定ならバイブのみで鳴らす。 */
+    private fun handleTimerFire(soundOn: Boolean) {
         com.galaxyalarm.timer.TimerController.onFired(this)
-        ringTransient(com.galaxyalarm.timer.TimerController.TIMER_OCCURRENCE_ID, "タイマー", "タイマー終了")
+        val mode = if (soundOn) com.galaxyalarm.data.model.SoundMode.SOUND
+        else com.galaxyalarm.data.model.SoundMode.VIBRATE_ONLY
+        ringTransient(com.galaxyalarm.timer.TimerController.TIMER_OCCURRENCE_ID, "タイマー", "タイマー終了", mode)
     }
 
     /** テスト鳴動: 信頼性チェックから即時に鳴らして経路(音/全画面/通知)を確認する。 */
     private fun handleTestFire() {
-        ringTransient(TEST_OCCURRENCE_ID, "テスト鳴動", "テスト鳴動")
+        ringTransient(TEST_OCCURRENCE_ID, "テスト鳴動", "テスト鳴動", com.galaxyalarm.data.model.SoundMode.SOUND)
     }
 
     /** DBに依存しない一時的な鳴動(タイマー/テスト共通)。 */
-    private fun ringTransient(id: Long, label: String, timeText: String) {
+    private fun ringTransient(
+        id: Long,
+        label: String,
+        timeText: String,
+        soundMode: com.galaxyalarm.data.model.SoundMode,
+    ) {
         acquireWakeLock()
         handler.post {
             ActiveAlarms.push(ActiveAlarm(id, -1L, label, timeText))
@@ -144,7 +153,7 @@ class AlarmService : Service() {
             )
             player.stop()
             player.start(
-                com.galaxyalarm.data.model.SoundMode.SOUND,
+                soundMode,
                 null,
                 true,
                 com.galaxyalarm.data.model.VibrationPattern.SHORT

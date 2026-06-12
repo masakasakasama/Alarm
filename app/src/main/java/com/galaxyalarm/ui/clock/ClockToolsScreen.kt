@@ -10,8 +10,12 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.Button
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
@@ -231,10 +235,13 @@ private fun StopwatchBlock() {
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun TimerBlock() {
     val context = LocalContext.current
     val endAt by TimerController.endAt.collectAsStateWithLifecycle()
+    val persistedSound by TimerController.soundOn.collectAsStateWithLifecycle()
+    val history by TimerController.history.collectAsStateWithLifecycle()
     var nowTick by remember { mutableLongStateOf(System.currentTimeMillis()) }
     LaunchedEffect(endAt) {
         while (endAt > 0L) {
@@ -249,6 +256,7 @@ private fun TimerBlock() {
     var minutes by rememberSaveable { mutableIntStateOf(5) }
     var seconds by rememberSaveable { mutableIntStateOf(0) }
     var resetKey by rememberSaveable { mutableIntStateOf(0) }
+    var soundOn by rememberSaveable { mutableStateOf(persistedSound) }
     val configuredSeconds = hours * 3600 + minutes * 60 + seconds
 
     SectionCard(Modifier.fillMaxWidth()) {
@@ -284,15 +292,57 @@ private fun TimerBlock() {
                         ) { Text("${m}分") }
                     }
                 }
+
+                // 履歴: 過去に使った時間をタップで再設定。
+                if (history.isNotEmpty()) {
+                    Spacer(Modifier.height(12.dp))
+                    Text("履歴", style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Spacer(Modifier.height(6.dp))
+                    Row(
+                        Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        history.forEach { sec ->
+                            OutlinedButton(onClick = {
+                                hours = sec / 3600
+                                minutes = (sec / 60) % 60
+                                seconds = sec % 60
+                                resetKey++
+                            }) { Text(formatSeconds(sec)) }
+                        }
+                    }
+                }
+
+                // 音あり / 音なし(バイブのみ)の選択。
+                Spacer(Modifier.height(12.dp))
+                Text("終了時の鳴り方", style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Spacer(Modifier.height(6.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FilterChip(
+                        selected = soundOn,
+                        onClick = { soundOn = true },
+                        label = { Text("音あり") }
+                    )
+                    FilterChip(
+                        selected = !soundOn,
+                        onClick = { soundOn = false },
+                        label = { Text("音なし(バイブ)") }
+                    )
+                }
+
                 Spacer(Modifier.height(10.dp))
                 Button(
-                    onClick = { TimerController.start(context, configuredSeconds) },
+                    onClick = { TimerController.start(context, configuredSeconds, soundOn) },
                     enabled = configuredSeconds > 0,
                     modifier = Modifier.fillMaxWidth()
                 ) { Text("開始") }
             } else {
                 Text(formatSeconds(remaining), style = MaterialTheme.typography.displayLarge, fontWeight = FontWeight.Bold)
-                Text("時間が来たらアラームとして鳴ります(タブを移動しても継続)",
+                Text(
+                    if (persistedSound) "時間が来たらアラームとして鳴ります(タブを移動しても継続)"
+                    else "時間が来たら音なし(バイブのみ)で知らせます(タブを移動しても継続)",
                     style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Spacer(Modifier.height(10.dp))
                 Button(
