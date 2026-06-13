@@ -89,7 +89,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     private suspend fun startupSync() = runCatching {
         val store = GitHubBackupStore(appContext)
         val settings = store.load()
-        if (settings.token.isBlank() || settings.gistId.isBlank()) return
+        if (settings.token.isBlank() || settings.gistId.isBlank()) return@runCatching
         val json = GitHubBackupClient.download(settings.token, settings.gistId)
         repo.mergeBackupJson(json)
         refreshWidgets()
