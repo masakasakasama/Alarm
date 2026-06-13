@@ -84,7 +84,17 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     private fun nextOf(a: AlarmItem): Long =
         NextTriggerCalculator.nextTrigger(a.hour, a.minute, a.weekdaysMask)
 
-    init { refreshPermission(); runCheck() }
+    init { refreshPermission(); runCheck(); viewModelScope.launch { startupSync() } }
+
+    private suspend fun startupSync() = runCatching {
+        val store = GitHubBackupStore(appContext)
+        val settings = store.load()
+        if (settings.token.isBlank() || settings.gistId.isBlank()) return
+        val json = GitHubBackupClient.download(settings.token, settings.gistId)
+        repo.mergeBackupJson(json)
+        refreshWidgets()
+        runCheck()
+    }
 
     fun refreshPermission() { canScheduleExact.value = permissions.canScheduleExactAlarms() }
 
