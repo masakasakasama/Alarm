@@ -28,7 +28,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
-import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.remember
@@ -260,30 +259,17 @@ private fun StopwatchBlock() {
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun TimerBlock() {
-    val context = LocalContext.current
-    val endAt by TimerController.endAt.collectAsStateWithLifecycle()
-    val persistedSound by TimerController.soundOn.collectAsStateWithLifecycle()
-    val history by TimerController.history.collectAsStateWithLifecycle()
+private fun ActiveTimerCard(entry: TimerEntry, onCancel: () -> Unit) {
     var nowTick by remember { mutableLongStateOf(System.currentTimeMillis()) }
-    LaunchedEffect(endAt) {
-        while (endAt > 0L) {
+    LaunchedEffect(entry.endAt) {
+        while (System.currentTimeMillis() < entry.endAt) {
             nowTick = System.currentTimeMillis()
             delay(250)
         }
+        nowTick = System.currentTimeMillis()
     }
-    val running = endAt > nowTick
-    val remaining = ((endAt - nowTick) / 1000L).toInt().coerceAtLeast(0)
-
-    var hours by rememberSaveable { mutableIntStateOf(0) }
-    var minutes by rememberSaveable { mutableIntStateOf(5) }
-    var seconds by rememberSaveable { mutableIntStateOf(0) }
-    var resetKey by rememberSaveable { mutableIntStateOf(0) }
-    var soundOn by rememberSaveable { mutableStateOf(persistedSound) }
-    val configuredSeconds = hours * 3600 + minutes * 60 + seconds
-
+    val remaining = ((entry.endAt - nowTick) / 1000L).toInt().coerceAtLeast(0)
     SectionCard(Modifier.fillMaxWidth()) {
         Column {
             Row(
@@ -292,89 +278,82 @@ private fun TimerBlock() {
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text("カウントダウン", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
-                StatusPill(if (running) "実行中" else "待機", if (running) PillLevel.OK else PillLevel.WARN)
+                StatusPill("実行中", PillLevel.OK)
             }
             Spacer(Modifier.height(8.dp))
+            Text(formatSeconds(remaining), style = MaterialTheme.typography.displayLarge, fontWeight = FontWeight.Bold)
+            Text(
+                if (entry.soundOn) "時間が来たらアラームとして鳴ります(タブを移動しても継続)"
+                else "時間が来たら音なし(バイブのみ)で知らせます(タブを移動しても継続)",
+                style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Spacer(Modifier.height(10.dp))
+            Button(onClick = onCancel, modifier = Modifier.fillMaxWidth()) { Text("キャンセル") }
+        }
+    }
+}
 
-            if (!running) {
-                key(resetKey) {
-                    Row(
-                        Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.Center,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        TimerWheel("時", 24, hours) { hours = it }
-                        TimerWheel("分", 60, minutes) { minutes = it }
-                        TimerWheel("秒", 60, seconds) { seconds = it }
-                    }
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun AddTimerForm(history: List<Int>, onStart: (Int, Boolean) -> Unit) {
+    var hours by rememberSaveable { mutableIntStateOf(0) }
+    var minutes by rememberSaveable { mutableIntStateOf(5) }
+    var seconds by rememberSaveable { mutableIntStateOf(0) }
+    var resetKey by rememberSaveable { mutableIntStateOf(0) }
+    var soundOn by rememberSaveable { mutableStateOf(true) }
+    val configuredSeconds = hours * 3600 + minutes * 60 + seconds
+    SectionCard(Modifier.fillMaxWidth()) {
+        Column {
+            Text("新しいタイマー", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+            Spacer(Modifier.height(8.dp))
+            key(resetKey) {
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.Center,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    TimerWheel("時", 24, hours) { hours = it }
+                    TimerWheel("分", 60, minutes) { minutes = it }
+                    TimerWheel("秒", 60, seconds) { seconds = it }
                 }
-                Spacer(Modifier.height(10.dp))
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    listOf(1, 3, 5, 10).forEach { m ->
-                        OutlinedButton(
-                            onClick = { hours = 0; minutes = m; seconds = 0; resetKey++ },
-                            modifier = Modifier.weight(1f)
-                        ) { Text("${m}分") }
-                    }
-                }
-
-                // 履歴: 過去に使った時間をタップで再設定。
-                if (history.isNotEmpty()) {
-                    Spacer(Modifier.height(12.dp))
-                    Text("履歴", style = MaterialTheme.typography.titleMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Spacer(Modifier.height(6.dp))
-                    Row(
-                        Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        history.forEach { sec ->
-                            OutlinedButton(onClick = {
-                                hours = sec / 3600
-                                minutes = (sec / 60) % 60
-                                seconds = sec % 60
-                                resetKey++
-                            }) { Text(formatSeconds(sec)) }
-                        }
-                    }
-                }
-
-                // 音あり / 音なし(バイブのみ)の選択。
-                Spacer(Modifier.height(12.dp))
-                Text("終了時の鳴り方", style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Spacer(Modifier.height(6.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    FilterChip(
-                        selected = soundOn,
-                        onClick = { soundOn = true },
-                        label = { Text("音あり") }
-                    )
-                    FilterChip(
-                        selected = !soundOn,
-                        onClick = { soundOn = false },
-                        label = { Text("音なし(バイブ)") }
-                    )
-                }
-
-                Spacer(Modifier.height(10.dp))
-                Button(
-                    onClick = { TimerController.start(context, configuredSeconds, soundOn) },
-                    enabled = configuredSeconds > 0,
-                    modifier = Modifier.fillMaxWidth()
-                ) { Text("開始") }
-            } else {
-                Text(formatSeconds(remaining), style = MaterialTheme.typography.displayLarge, fontWeight = FontWeight.Bold)
-                Text(
-                    if (persistedSound) "時間が来たらアラームとして鳴ります(タブを移動しても継続)"
-                    else "時間が来たら音なし(バイブのみ)で知らせます(タブを移動しても継続)",
-                    style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Spacer(Modifier.height(10.dp))
-                Button(
-                    onClick = { TimerController.cancel(context) },
-                    modifier = Modifier.fillMaxWidth()
-                ) { Text("キャンセル") }
             }
+            Spacer(Modifier.height(10.dp))
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                listOf(1, 3, 5, 10).forEach { m ->
+                    OutlinedButton(
+                        onClick = { hours = 0; minutes = m; seconds = 0; resetKey++ },
+                        modifier = Modifier.weight(1f)
+                    ) { Text("${m}分") }
+                }
+            }
+            if (history.isNotEmpty()) {
+                Spacer(Modifier.height(12.dp))
+                Text("履歴", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Spacer(Modifier.height(6.dp))
+                Row(
+                    Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    history.forEach { sec ->
+                        OutlinedButton(onClick = {
+                            hours = sec / 3600; minutes = (sec / 60) % 60; seconds = sec % 60; resetKey++
+                        }) { Text(formatSeconds(sec)) }
+                    }
+                }
+            }
+            Spacer(Modifier.height(12.dp))
+            Text("終了時の鳴り方", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Spacer(Modifier.height(6.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FilterChip(selected = soundOn, onClick = { soundOn = true }, label = { Text("音あり") })
+                FilterChip(selected = !soundOn, onClick = { soundOn = false }, label = { Text("音なし(バイブ)") })
+            }
+            Spacer(Modifier.height(10.dp))
+            Button(
+                onClick = { onStart(configuredSeconds, soundOn) },
+                enabled = configuredSeconds > 0,
+                modifier = Modifier.fillMaxWidth()
+            ) { Text("開始") }
         }
     }
 }
@@ -383,23 +362,29 @@ private fun TimerBlock() {
 @Composable
 fun RunningTimerCard() {
     val context = LocalContext.current
-    val endAt by TimerController.endAt.collectAsStateWithLifecycle()
+    val timers by TimerController.timers.collectAsStateWithLifecycle()
     var nowTick by remember { mutableLongStateOf(System.currentTimeMillis()) }
-    LaunchedEffect(endAt) {
-        while (endAt > 0L) {
+    LaunchedEffect(timers) {
+        while (timers.any { it.endAt > System.currentTimeMillis() }) {
             nowTick = System.currentTimeMillis()
             delay(250)
         }
+        nowTick = System.currentTimeMillis()
     }
-    if (endAt <= nowTick) return
-    val remaining = ((endAt - nowTick) / 1000L).toInt().coerceAtLeast(0)
+    val activeTimers = timers.filter { it.endAt > nowTick }
+    if (activeTimers.isEmpty()) return
+    val nearest = activeTimers.minBy { it.endAt }
+    val remaining = ((nearest.endAt - nowTick) / 1000L).toInt().coerceAtLeast(0)
     SectionCard(Modifier.fillMaxWidth()) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
-                Text("タイマー実行中", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(
+                    if (activeTimers.size == 1) "タイマー実行中" else "タイマー ${activeTimers.size}件実行中",
+                    style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
                 Text(formatSeconds(remaining), style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
             }
-            OutlinedButton(onClick = { TimerController.cancel(context) }) { Text("キャンセル") }
+            OutlinedButton(onClick = { TimerController.cancel(context, nearest.id) }) { Text("キャンセル") }
         }
     }
 }
