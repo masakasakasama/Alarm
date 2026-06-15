@@ -1,0 +1,69 @@
+name: build
+
+on:
+  push:
+    branches: [ "**" ]
+  pull_request:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install SDK packages
+        run: |
+          sdkmanager "platforms;android-35" "build-tools;35.0.0" "platform-tools"
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+
+      - name: Unit tests + assemble debug & release APK
+        run: ./gradlew testDebugUnitTest assembleDebug assembleRelease --no-daemon --stacktrace
+
+      - name: Upload debug APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-debug
+          path: app/build/outputs/apk/debug/*.apk
+
+      - name: Upload release APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-release
+          path: app/build/outputs/apk/release/*.apk
+
+      - name: Prepare release APK (main only)
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          VN=$(grep 'versionName = ' app/build.gradle.kts | head -1 | sed -E 's/.*"([^"]+)".*/\1/')
+          echo "APP_TAG=v$VN" >> "$GITHUB_ENV"
+          mkdir -p dist
+          cp app/build/outputs/apk/release/app-release.apk "dist/GalaxyAlarm-v$VN.apk"
+
+      - name: Publish to GitHub Releases (main only)
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.APP_TAG }}
+          name: Galaxy Clock ${{ env.APP_TAG }}
+          files: dist/*.apk
+          body: |
+            Galaxy Clock ${{ env.APP_TAG }}
+
+            APK: GalaxyAlarm-${{ env.APP_TAG }}.apk
+
+            スマホのブラウザでこのページを開き、APKをダウンロードしてインストールしてください。
