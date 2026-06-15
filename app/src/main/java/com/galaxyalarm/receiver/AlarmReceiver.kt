@@ -18,7 +18,10 @@ class AlarmReceiver : BroadcastReceiver() {
         Log.i(TAG, "onReceive: $action")
         // タイマーのキャンセルは通知操作。鳴動サービスを起こさず即時に予約解除する。
         if (action == AlarmIntents.ACTION_TIMER_CANCEL) {
-            runCatching { com.galaxyalarm.timer.TimerController.cancel(context) }
+            val timerId = intent.getIntExtra(AlarmIntents.EXTRA_TIMER_ID, -1)
+            if (timerId >= 0) {
+                runCatching { com.galaxyalarm.timer.TimerController.cancel(context, timerId) }
+            }
             return
         }
         val serviceIntent = Intent(context, AlarmService::class.java).apply {

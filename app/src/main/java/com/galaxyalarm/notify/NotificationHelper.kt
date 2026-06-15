@@ -65,10 +65,10 @@ class NotificationHelper(private val context: Context) {
     }
 
     /** 実行中タイマーの常駐通知。残り時間をカウントダウン表示し、キャンセル操作を提供する。 */
-    fun showTimerNotification(endAt: Long, soundOn: Boolean) {
+    fun showTimerNotification(timerId: Int, endAt: Long, soundOn: Boolean) {
         val openPi = PendingIntent.getActivity(
             context,
-            7100,
+            7100 + timerId,
             Intent(context, MainActivity::class.java).apply {
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
             },
@@ -76,9 +76,10 @@ class NotificationHelper(private val context: Context) {
         )
         val cancelPi = PendingIntent.getBroadcast(
             context,
-            7101,
+            7200 + timerId,
             Intent(context, AlarmReceiver::class.java).apply {
                 action = AlarmIntents.ACTION_TIMER_CANCEL
+                putExtra(AlarmIntents.EXTRA_TIMER_ID, timerId)
             },
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
@@ -98,11 +99,11 @@ class NotificationHelper(private val context: Context) {
             .setContentIntent(openPi)
             .addAction(Action.Builder(0, "キャンセル", cancelPi).build())
             .build()
-        runCatching { nm.notify(TIMER_ID, notification) }
+        runCatching { nm.notify(TIMER_ID_BASE + timerId, notification) }
     }
 
-    fun cancelTimerNotification() {
-        runCatching { nm.cancel(TIMER_ID) }
+    fun cancelTimerNotification(timerId: Int) {
+        runCatching { nm.cancel(TIMER_ID_BASE + timerId) }
     }
 
     fun buildLoadingNotification(): Notification =
@@ -202,6 +203,6 @@ class NotificationHelper(private val context: Context) {
         const val CHANNEL_TIMER = "timer_running"
         const val FOREGROUND_ID = 42
         const val RELIABILITY_ALERT_ID = 43
-        const val TIMER_ID = 44
+        const val TIMER_ID_BASE = 44
     }
 }

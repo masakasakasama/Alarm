@@ -54,6 +54,7 @@ class AlarmService : Service() {
             AlarmIntents.ACTION_SNOOZE -> handleSnooze(intent.getLongExtra(AlarmIntents.EXTRA_OCCURRENCE_ID, -1))
             AlarmIntents.ACTION_STOP_ALL -> handleStopAll()
             AlarmIntents.ACTION_TIMER_FIRE -> handleTimerFire(
+                intent.getIntExtra(AlarmIntents.EXTRA_TIMER_ID, -1),
                 intent.getBooleanExtra(AlarmIntents.EXTRA_TIMER_SOUND, true)
             )
             AlarmIntents.ACTION_TEST_FIRE -> handleTestFire()
@@ -125,11 +126,12 @@ class AlarmService : Service() {
     }
 
     /** タイマー発火: DBアラームに依存せず鳴らす。音なし設定ならバイブのみで鳴らす。 */
-    private fun handleTimerFire(soundOn: Boolean) {
-        com.galaxyalarm.timer.TimerController.onFired(this)
+    private fun handleTimerFire(timerId: Int, soundOn: Boolean) {
+        if (timerId < 0) return
+        com.galaxyalarm.timer.TimerController.onFired(this, timerId)
         val mode = if (soundOn) com.galaxyalarm.data.model.SoundMode.SOUND
         else com.galaxyalarm.data.model.SoundMode.VIBRATE_ONLY
-        ringTransient(com.galaxyalarm.timer.TimerController.TIMER_OCCURRENCE_ID, "タイマー", "タイマー終了", mode)
+        ringTransient(com.galaxyalarm.timer.TimerController.occurrenceId(timerId), "タイマー", "タイマー終了", mode)
     }
 
     /** テスト鳴動: 信頼性チェックから即時に鳴らして経路(音/全画面/通知)を確認する。 */

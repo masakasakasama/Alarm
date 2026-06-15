@@ -1,5 +1,6 @@
 package com.galaxyalarm.ui.clock
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -12,6 +13,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -39,6 +41,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.galaxyalarm.timer.StopwatchController
 import com.galaxyalarm.timer.TimerController
+import com.galaxyalarm.timer.TimerEntry
 import com.galaxyalarm.ui.MainViewModel
 import com.galaxyalarm.ui.TimeFormat
 import com.galaxyalarm.ui.components.PillLevel
@@ -51,8 +54,14 @@ import java.util.Locale
 import java.util.TimeZone
 
 /** タイマー専用タブ。 */
+@OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
 @Composable
 fun TimerScreen() {
+    val context = LocalContext.current
+    val timers by TimerController.timers.collectAsStateWithLifecycle()
+    val history by TimerController.history.collectAsStateWithLifecycle()
+    var showForm by rememberSaveable { mutableStateOf(true) }
+
     LazyColumn(
         modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -61,7 +70,23 @@ fun TimerScreen() {
         item {
             Text("タイマー", style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
         }
-        item { TimerBlock() }
+        items(timers, key = { it.id }) { entry ->
+            ActiveTimerCard(entry = entry, onCancel = { TimerController.cancel(context, entry.id) })
+        }
+        if (timers.isEmpty() || showForm) {
+            item(key = "add_form") {
+                AddTimerForm(history = history) { seconds, soundOn ->
+                    TimerController.start(context, seconds, soundOn)
+                    showForm = false
+                }
+            }
+        } else {
+            item(key = "add_button") {
+                OutlinedButton(onClick = { showForm = true }, modifier = Modifier.fillMaxWidth()) {
+                    Text("+ タイマーを追加")
+                }
+            }
+        }
     }
 }
 

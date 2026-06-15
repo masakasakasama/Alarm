@@ -14,4 +14,5 @@ object AlarmIntents {
     const val EXTRA_ALARM_ID = "alarm_id"
     /** タイマー終了時に音を鳴らすか(false=バイブのみの音なし)。 */
     const val EXTRA_TIMER_SOUND = "timer_sound"
+    const val EXTRA_TIMER_ID = "timer_id"
 }

@@ -12,37 +12,27 @@ import com.galaxyalarm.scheduler.AlarmIntents
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 
-/**
- * タイマーを「見た目だけのカウント」ではなく、AlarmManager の実予約 + 永続ストアで管理する。
- * - タブ移動・アプリ終了・端末再起動で消えない(prefs に endAt を保存、起動時に復元/再予約)。
- * - 時間が来たら AlarmReceiver → AlarmService で本物のアラームとして鳴る。
- * - endAt は秒精度(絶対時刻 millis)。
- */
+data class TimerEntry(
+    val id: Int,
+    val endAt: Long,
+    val totalSeconds: Int,
+    val soundOn: Boolean,
+)
+
 object TimerController {
     private const val PREFS = "timer_state"
-    private const val KEY_END_AT = "endAt"
-    private const val KEY_TOTAL = "totalSeconds"
-    private const val KEY_SOUND = "soundOn"
+    private const val KEY_IDS = "timer_ids"
+    private const val KEY_NEXT_ID = "next_id"
     private const val KEY_HISTORY = "history"
     private const val MAX_HISTORY = 6
-    const val TIMER_REQUEST_CODE = 770_001
-    const val TIMER_OCCURRENCE_ID = -1000L
+    const val TIMER_REQUEST_BASE = 770_001
+    const val OCCURRENCE_ID_BASE = -1000L
 
-    /** 終了予定の絶対時刻(millis)。0 は未設定。UI が購読する。 */
-    private val _endAt = MutableStateFlow(0L)
-    val endAt: StateFlow<Long> = _endAt
+    private val _timers = MutableStateFlow<List<TimerEntry>>(emptyList())
+    val timers: StateFlow<List<TimerEntry>> = _timers
 
-    /** 終了時に音を鳴らすか(false=音なし/バイブのみ)。 */
-    private val _soundOn = MutableStateFlow(true)
-    val soundOn: StateFlow<Boolean> = _soundOn
-
-    /** 過去に使った時間(秒)の履歴。新しい順、最大 MAX_HISTORY 件。 */
     private val _history = MutableStateFlow<List<Int>>(emptyList())
     val history: StateFlow<List<Int>> = _history
-
-    /** 直近に設定した合計秒(リセット表示用)。 */
-    @Volatile var totalSeconds: Int = 5 * 60
-        private set
 
     private fun prefs(context: Context) =
         (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N)
@@ -53,92 +43,148 @@ object TimerController {
     private fun alarmManager(context: Context) =
         context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
 
-    /** 起動時・再起動時に呼ぶ。保存済みタイマーを復元(未来なら再予約、過去なら破棄)。 */
     fun init(context: Context) {
         val p = prefs(context)
-        val savedEnd = p.getLong(KEY_END_AT, 0L)
-        totalSeconds = p.getInt(KEY_TOTAL, 5 * 60)
-        _soundOn.value = p.getBoolean(KEY_SOUND, true)
         _history.value = parseHistory(p.getString(KEY_HISTORY, "") ?: "")
-        if (savedEnd > System.currentTimeMillis()) {
-            _endAt.value = savedEnd
-            runCatching { schedule(context, savedEnd) }
-            runCatching { NotificationHelper(context).showTimerNotification(savedEnd, _soundOn.value) }
-        } else {
-            _endAt.value = 0L
-            if (savedEnd != 0L) clearPersisted(context)
-            runCatching { NotificationHelper(context).cancelTimerNotification() }
+        val now = System.currentTimeMillis()
+
+        // Migrate from old single-timer format (endAt key without timer_ids)
+        val oldEndAt = p.getLong("endAt", 0L)
+        if (oldEndAt > 0L && !p.contains(KEY_IDS)) {
+            if (oldEndAt > now) {
+                val id = 1
+                val soundOn = p.getBoolean("soundOn", true)
+                val totalSeconds = p.getInt("totalSeconds", 5 * 60)
+                val entry = TimerEntry(id, oldEndAt, totalSeconds, soundOn)
+                _timers.value = listOf(entry)
+                with(p.edit()) {
+                    putString(KEY_IDS, "1")
+                    putInt(KEY_NEXT_ID, 2)
+                    putLong("timer_1_endAt", oldEndAt)
+                    putInt("timer_1_total", totalSeconds)
+                    putBoolean("timer_1_sound", soundOn)
+                    remove("endAt"); remove("soundOn"); remove("totalSeconds")
+                    apply()
+                }
+                runCatching { schedule(context, entry) }
+                runCatching { NotificationHelper(context).showTimerNotification(id, oldEndAt, soundOn) }
+            } else {
+                p.edit().remove("endAt").apply()
+            }
+            return
+        }
+
+        val ids = (p.getString(KEY_IDS, "") ?: "")
+            .split(",").mapNotNull { it.trim().toIntOrNull() }
+        val validTimers = mutableListOf<TimerEntry>()
+        val toClean = mutableListOf<Int>()
+        for (id in ids) {
+            val endAt = p.getLong("timer_${id}_endAt", 0L)
+            if (endAt <= now) { toClean.add(id); continue }
+            val entry = TimerEntry(
+                id, endAt,
+                p.getInt("timer_${id}_total", 5 * 60),
+                p.getBoolean("timer_${id}_sound", true)
+            )
+            validTimers.add(entry)
+            runCatching { schedule(context, entry) }
+            runCatching { NotificationHelper(context).showTimerNotification(id, endAt, entry.soundOn) }
+        }
+        _timers.value = validTimers
+        if (toClean.isNotEmpty()) {
+            with(p.edit()) {
+                toClean.forEach { id ->
+                    remove("timer_${id}_endAt"); remove("timer_${id}_total"); remove("timer_${id}_sound")
+                }
+                putString(KEY_IDS, validTimers.joinToString(",") { it.id.toString() })
+                apply()
+            }
         }
     }
 
-    /** タイマー開始。durationSeconds 後に鳴る。soundOn=false なら音なし(バイブのみ)。 */
-    fun start(context: Context, durationSeconds: Int, soundOn: Boolean = true) {
-        if (durationSeconds <= 0) return
-        val end = System.currentTimeMillis() + durationSeconds * 1000L
-        totalSeconds = durationSeconds
-        _soundOn.value = soundOn
-        _endAt.value = end
+    fun start(context: Context, durationSeconds: Int, soundOn: Boolean = true): Int {
+        if (durationSeconds <= 0) return -1
+        val p = prefs(context)
+        val id = p.getInt(KEY_NEXT_ID, 1)
+        val endAt = System.currentTimeMillis() + durationSeconds * 1000L
+        val entry = TimerEntry(id, endAt, durationSeconds, soundOn)
+        val newTimers = _timers.value + entry
+        _timers.value = newTimers
         val newHistory = addToHistory(_history.value, durationSeconds)
         _history.value = newHistory
-        prefs(context).edit()
-            .putLong(KEY_END_AT, end)
-            .putInt(KEY_TOTAL, durationSeconds)
-            .putBoolean(KEY_SOUND, soundOn)
-            .putString(KEY_HISTORY, newHistory.joinToString(","))
-            .apply()
-        runCatching { schedule(context, end) }
-        runCatching { NotificationHelper(context).showTimerNotification(end, soundOn) }
+        with(p.edit()) {
+            putInt(KEY_NEXT_ID, id + 1)
+            putString(KEY_IDS, newTimers.joinToString(",") { it.id.toString() })
+            putLong("timer_${id}_endAt", endAt)
+            putInt("timer_${id}_total", durationSeconds)
+            putBoolean("timer_${id}_sound", soundOn)
+            putString(KEY_HISTORY, newHistory.joinToString(","))
+            apply()
+        }
+        runCatching { schedule(context, entry) }
+        runCatching { NotificationHelper(context).showTimerNotification(id, endAt, soundOn) }
+        return id
     }
 
-    /** ユーザーによるキャンセル。予約も解除。 */
-    fun cancel(context: Context) {
-        _endAt.value = 0L
-        clearPersisted(context)
-        runCatching { alarmManager(context).cancel(firePendingIntent(context)) }
-        runCatching { NotificationHelper(context).cancelTimerNotification() }
+    fun cancel(context: Context, timerId: Int) {
+        val newTimers = _timers.value.filter { it.id != timerId }
+        _timers.value = newTimers
+        with(prefs(context).edit()) {
+            putString(KEY_IDS, newTimers.joinToString(",") { it.id.toString() })
+            remove("timer_${timerId}_endAt")
+            remove("timer_${timerId}_total")
+            remove("timer_${timerId}_sound")
+            apply()
+        }
+        runCatching { alarmManager(context).cancel(buildFirePi(context, timerId, false)) }
+        runCatching { NotificationHelper(context).cancelTimerNotification(timerId) }
     }
 
-    /** 発火時に AlarmService から呼ぶ(状態だけクリア、予約は消費済み)。 */
-    fun onFired(context: Context) {
-        _endAt.value = 0L
-        clearPersisted(context)
-        runCatching { NotificationHelper(context).cancelTimerNotification() }
+    fun onFired(context: Context, timerId: Int) {
+        val newTimers = _timers.value.filter { it.id != timerId }
+        _timers.value = newTimers
+        with(prefs(context).edit()) {
+            putString(KEY_IDS, newTimers.joinToString(",") { it.id.toString() })
+            remove("timer_${timerId}_endAt")
+            remove("timer_${timerId}_total")
+            remove("timer_${timerId}_sound")
+            apply()
+        }
+        runCatching { NotificationHelper(context).cancelTimerNotification(timerId) }
     }
 
-    private fun clearPersisted(context: Context) {
-        prefs(context).edit().remove(KEY_END_AT).apply()
-    }
+    fun occurrenceId(timerId: Int): Long = OCCURRENCE_ID_BASE - timerId
 
     private fun parseHistory(csv: String): List<Int> =
         csv.split(",").mapNotNull { it.trim().toIntOrNull() }.filter { it > 0 }.take(MAX_HISTORY)
 
-    /** 同じ長さは先頭へ寄せ、新しい順で最大 MAX_HISTORY 件に保つ。 */
     private fun addToHistory(current: List<Int>, seconds: Int): List<Int> =
         (listOf(seconds) + current.filter { it != seconds }).take(MAX_HISTORY)
 
-    private fun schedule(context: Context, triggerAt: Long) {
+    private fun schedule(context: Context, entry: TimerEntry) {
         val am = alarmManager(context)
-        val pi = firePendingIntent(context)
+        val pi = buildFirePi(context, entry.id, entry.soundOn)
         val showPi = PendingIntent.getActivity(
-            context, TIMER_REQUEST_CODE + 1,
+            context, TIMER_REQUEST_BASE + entry.id + 1_000_000,
             Intent(context, MainActivity::class.java)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
         try {
-            am.setAlarmClock(AlarmManager.AlarmClockInfo(triggerAt, showPi), pi)
+            am.setAlarmClock(AlarmManager.AlarmClockInfo(entry.endAt, showPi), pi)
         } catch (e: SecurityException) {
-            am.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, pi)
+            am.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, entry.endAt, pi)
         }
     }
 
-    private fun firePendingIntent(context: Context): PendingIntent {
+    private fun buildFirePi(context: Context, timerId: Int, soundOn: Boolean): PendingIntent {
         val intent = Intent(context, AlarmReceiver::class.java).apply {
             action = AlarmIntents.ACTION_TIMER_FIRE
-            putExtra(AlarmIntents.EXTRA_TIMER_SOUND, _soundOn.value)
+            putExtra(AlarmIntents.EXTRA_TIMER_ID, timerId)
+            putExtra(AlarmIntents.EXTRA_TIMER_SOUND, soundOn)
         }
         return PendingIntent.getBroadcast(
-            context, TIMER_REQUEST_CODE, intent,
+            context, TIMER_REQUEST_BASE + timerId, intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
     }
