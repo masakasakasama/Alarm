@@ -57,8 +57,8 @@ import com.galaxyalarm.ui.components.PillLevel
 import com.galaxyalarm.ui.components.SectionCard
 import com.galaxyalarm.ui.components.StatusPill
 
-private val AmColor = Color(0xFF82B1FF)
-private val PmColor = Color(0xFFFFB74D)
+private val AmColor = Color(0xFF80DEEA)   // シアン (朝)
+private val PmColor = Color(0xFFCE93D8)   // ラベンダー (午後)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -106,7 +106,7 @@ fun AlarmsScreen(
         // トップレベル表示のときは現在時刻+次のアラームを上部に出す(旧・時計タブの内容)。
         if (!showingGroup) {
             item { NowCard() }
-            item { NextAlarmCard(vm = vm, onAddAlarm = onAddAlarm) }
+            item { NextAlarmCard(vm = vm, onAddAlarm = onAddAlarm, onEditAlarm = onEditAlarm) }
             item { RunningTimerCard() }
         }
 

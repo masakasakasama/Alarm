@@ -122,11 +122,12 @@ fun NowCard() {
     }
 }
 
-/** 次のアラームだけのカード(現在時刻とは別に表示)。 */
+/** 次のアラームだけのカード(現在時刻とは別に表示)。タップで該当アラーム編集。 */
 @Composable
-fun NextAlarmCard(vm: MainViewModel, onAddAlarm: () -> Unit) {
+fun NextAlarmCard(vm: MainViewModel, onAddAlarm: () -> Unit, onEditAlarm: (Long) -> Unit = {}) {
     val nextAlarm by vm.nextAlarmRow.collectAsStateWithLifecycle()
-    SectionCard(Modifier.fillMaxWidth()) {
+    val onClick = if (nextAlarm != null) ({ onEditAlarm(nextAlarm!!.alarm.id) }) else null
+    SectionCard(Modifier.fillMaxWidth(), onClick = onClick) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Text("次のアラーム", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -136,7 +137,7 @@ fun NextAlarmCard(vm: MainViewModel, onAddAlarm: () -> Unit) {
                     val row = nextAlarm!!
                     Text(TimeFormat.nextTrigger(row.nextTriggerAt), style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
                     Text(
-                        "${TimeFormat.hourMinute12(row.alarm.hour, row.alarm.minute)} ・ ${row.alarm.label.ifBlank { row.groupName }}",
+                        row.alarm.label.ifBlank { row.groupName },
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }

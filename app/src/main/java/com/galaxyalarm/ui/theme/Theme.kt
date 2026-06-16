@@ -7,8 +7,26 @@ import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.googlefonts.Font
+import androidx.compose.ui.text.googlefonts.GoogleFont
 import androidx.compose.ui.unit.sp
+import com.galaxyalarm.R
+
+private val fontProvider = GoogleFont.Provider(
+    providerAuthority = "com.google.android.gms.fonts",
+    providerPackage = "com.google.android.gms",
+    certificates = R.array.com_google_android_gms_fonts_certs,
+)
+
+private val Nunito = FontFamily(
+    Font(googleFont = GoogleFont("Nunito"), fontProvider = fontProvider, weight = FontWeight.Normal),
+    Font(googleFont = GoogleFont("Nunito"), fontProvider = fontProvider, weight = FontWeight.Medium),
+    Font(googleFont = GoogleFont("Nunito"), fontProvider = fontProvider, weight = FontWeight.SemiBold),
+    Font(googleFont = GoogleFont("Nunito"), fontProvider = fontProvider, weight = FontWeight.Bold),
+    Font(googleFont = GoogleFont("Nunito"), fontProvider = fontProvider, weight = FontWeight.ExtraBold),
+)
 
 // 黒基調 + アクセントブルー。安っぽくならない高コントラスト配色。
 val Accent = Color(0xFF4F8CFF)
@@ -36,11 +54,14 @@ private val DarkColors = darkColorScheme(
 )
 
 private val AppTypography = Typography(
-    displayLarge = TextStyle(fontWeight = FontWeight.Bold, fontSize = 56.sp),
-    headlineLarge = TextStyle(fontWeight = FontWeight.Bold, fontSize = 34.sp),
-    titleLarge = TextStyle(fontWeight = FontWeight.SemiBold, fontSize = 22.sp),
-    bodyMedium = TextStyle(fontSize = 15.sp),
-    labelSmall = TextStyle(fontSize = 12.sp, color = OnSurfaceDim),
+    displayLarge = TextStyle(fontFamily = Nunito, fontWeight = FontWeight.ExtraBold, fontSize = 56.sp),
+    headlineLarge = TextStyle(fontFamily = Nunito, fontWeight = FontWeight.ExtraBold, fontSize = 34.sp),
+    headlineMedium = TextStyle(fontFamily = Nunito, fontWeight = FontWeight.Bold, fontSize = 28.sp),
+    titleLarge = TextStyle(fontFamily = Nunito, fontWeight = FontWeight.Bold, fontSize = 22.sp),
+    titleMedium = TextStyle(fontFamily = Nunito, fontWeight = FontWeight.SemiBold, fontSize = 16.sp),
+    bodyLarge = TextStyle(fontFamily = Nunito, fontWeight = FontWeight.Normal, fontSize = 16.sp),
+    bodyMedium = TextStyle(fontFamily = Nunito, fontWeight = FontWeight.Normal, fontSize = 15.sp),
+    labelSmall = TextStyle(fontFamily = Nunito, fontWeight = FontWeight.SemiBold, fontSize = 12.sp, color = OnSurfaceDim),
 )
 
 @Composable
