@@ -12,6 +12,11 @@ object TimeFormat {
         return String.format(Locale.JAPAN, "%d:%02d %s", h12, minute, ampm)
     }
 
+    fun hourMinuteOnly(hour: Int, minute: Int): String {
+        val h12 = (hour % 12).let { if (it == 0) 12 else it }
+        return String.format(Locale.JAPAN, "%d:%02d", h12, minute)
+    }
+
     fun nextTrigger(millis: Long?, now: Long = System.currentTimeMillis()): String {
         if (millis == null) return "-"
         val c = Calendar.getInstance().apply { timeInMillis = millis }
@@ -28,6 +33,22 @@ object TimeFormat {
             }
         }
         return "$prefix $hm"
+    }
+
+    fun nextTriggerDay(millis: Long?, now: Long = System.currentTimeMillis()): String {
+        if (millis == null) return "-"
+        val c = Calendar.getInstance().apply { timeInMillis = millis }
+        val today = Calendar.getInstance().apply { timeInMillis = now }
+        val dayDiff = dayOfEpoch(c) - dayOfEpoch(today)
+        return when (dayDiff) {
+            0L -> "今日"
+            1L -> "明日"
+            2L -> "明後日"
+            else -> {
+                val wd = weekdays[c.get(Calendar.DAY_OF_WEEK) - 1]
+                String.format(Locale.JAPAN, "%d/%d(%s)", c.get(Calendar.MONTH) + 1, c.get(Calendar.DAY_OF_MONTH), wd)
+            }
+        }
     }
 
     fun remaining(millis: Long?, now: Long = System.currentTimeMillis()): String {

@@ -57,6 +57,9 @@ import com.galaxyalarm.ui.components.PillLevel
 import com.galaxyalarm.ui.components.SectionCard
 import com.galaxyalarm.ui.components.StatusPill
 
+private val AmColor = Color(0xFF82B1FF)
+private val PmColor = Color(0xFFFFB74D)
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AlarmsScreen(
@@ -210,12 +213,21 @@ private fun AlarmCard(row: AlarmRow, onToggle: (Boolean) -> Unit, onClick: () ->
     ) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
-                Text(
-                    TimeFormat.hourMinute12(row.alarm.hour, row.alarm.minute),
-                    fontSize = 36.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
+                val isAm = row.alarm.hour < 12
+                Row(verticalAlignment = Alignment.Baseline) {
+                    Text(
+                        TimeFormat.hourMinuteOnly(row.alarm.hour, row.alarm.minute),
+                        fontSize = 36.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Text(
+                        if (isAm) " AM" else " PM",
+                        fontSize = 20.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = if (isAm) AmColor else PmColor
+                    )
+                }
                 Text(
                     row.alarm.label.ifBlank { "ラベルなし" } + " ・ " + Weekdays.label(row.alarm.weekdaysMask),
                     style = MaterialTheme.typography.bodyMedium,
@@ -225,7 +237,7 @@ private fun AlarmCard(row: AlarmRow, onToggle: (Boolean) -> Unit, onClick: () ->
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     SoundModePill(row.alarm.soundMode)
                     when {
-                        row.nextTriggerAt != null -> StatusPill(TimeFormat.nextTrigger(row.nextTriggerAt), PillLevel.OK)
+                        row.nextTriggerAt != null -> StatusPill(TimeFormat.nextTriggerDay(row.nextTriggerAt), PillLevel.OK)
                         row.alarm.enabled && !row.groupEnabled -> StatusPill("グループOFF", PillLevel.WARN)
                         !row.alarm.enabled -> StatusPill("OFF", PillLevel.WARN)
                         else -> StatusPill("未予約", PillLevel.DANGER)
