@@ -214,7 +214,7 @@ private fun AlarmCard(row: AlarmRow, onToggle: (Boolean) -> Unit, onClick: () ->
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 val isAm = row.alarm.hour < 12
-                Row(verticalAlignment = Alignment.Baseline) {
+                Row(verticalAlignment = Alignment.Bottom) {
                     Text(
                         TimeFormat.hourMinuteOnly(row.alarm.hour, row.alarm.minute),
                         fontSize = 36.sp,
