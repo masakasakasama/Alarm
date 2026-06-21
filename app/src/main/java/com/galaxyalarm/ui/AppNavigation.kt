@@ -72,14 +72,12 @@ fun AppNavigation(editAlarmRequest: Long? = null) {
                     NavigationBarItem(
                         selected = selectedRoute == tab.route,
                         onClick = {
-                            if (selectedRoute != tab.route) {
-                                navController.navigate(tab.route) {
-                                    popUpTo(navController.graph.findStartDestination().id) {
-                                        saveState = false
-                                    }
-                                    launchSingleTop = true
-                                    restoreState = false
+                            navController.navigate(tab.route) {
+                                popUpTo(navController.graph.findStartDestination().id) {
+                                    saveState = false
                                 }
+                                launchSingleTop = true
+                                restoreState = false
                             }
                         },
                         icon = { Icon(tab.icon, contentDescription = tab.label) },

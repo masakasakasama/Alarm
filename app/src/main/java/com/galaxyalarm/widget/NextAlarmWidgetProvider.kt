@@ -10,7 +10,6 @@ import android.widget.RemoteViews
 import com.galaxyalarm.MainActivity
 import com.galaxyalarm.R
 import com.galaxyalarm.data.db.AppDatabase
-import com.galaxyalarm.notify.NotificationHelper
 import com.galaxyalarm.scheduler.NextTriggerCalculator
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -32,7 +31,6 @@ class NextAlarmWidgetProvider : AppWidgetProvider() {
             updateAll(context, manager, ids)
             val smallIds = manager.getAppWidgetIds(ComponentName(context, NextAlarmSmallWidgetProvider::class.java))
             updateAllSmall(context, manager, smallIds)
-            updateStatusNotification(context)
         }
 
         private fun updateAll(context: Context, manager: AppWidgetManager, ids: IntArray) {
@@ -51,24 +49,6 @@ class NextAlarmWidgetProvider : AppWidgetProvider() {
                 val next = loadNextAlarm(context.applicationContext)
                 ids.forEach { id ->
                     manager.updateAppWidget(id, buildSmallView(context, next))
-                }
-            }
-        }
-
-        private fun updateStatusNotification(context: Context) {
-            CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
-                val appContext = context.applicationContext
-                val next = loadNextAlarm(appContext)
-                val notifier = NotificationHelper(appContext)
-                if (next == null) {
-                    notifier.cancelNextAlarmStatus()
-                } else {
-                    notifier.showNextAlarmStatus(
-                        alarmId = next.alarmId,
-                        triggerAt = next.time,
-                        groupName = next.groupName,
-                        label = next.label
-                    )
                 }
             }
         }

@@ -15,8 +15,6 @@ import com.galaxyalarm.R
 import com.galaxyalarm.receiver.AlarmReceiver
 import com.galaxyalarm.ring.AlarmRingActivity
 import com.galaxyalarm.scheduler.AlarmIntents
-import java.text.SimpleDateFormat
-import java.util.Locale
 
 class NotificationHelper(private val context: Context) {
 
@@ -64,53 +62,11 @@ class NotificationHelper(private val context: Context) {
             setShowBadge(false)
             lockscreenVisibility = Notification.VISIBILITY_PUBLIC
         }
-        val nextAlarm = NotificationChannel(
-            CHANNEL_NEXT_ALARM,
-            "次のアラーム",
-            NotificationManager.IMPORTANCE_LOW
-        ).apply {
-            description = "ロック画面に次のアラーム時刻を表示"
-            setSound(null, null)
-            enableVibration(false)
-            setShowBadge(false)
-            lockscreenVisibility = Notification.VISIBILITY_PUBLIC
-        }
-        nm.createNotificationChannels(listOf(alarm, service, health, alerts, timer, nextAlarm))
+        nm.createNotificationChannels(listOf(alarm, service, health, alerts, timer))
     }
 
-    fun showNextAlarmStatus(alarmId: Long, triggerAt: Long, groupName: String, label: String) {
-        val pi = PendingIntent.getActivity(
-            context,
-            7300 + alarmId.toInt(),
-            Intent(context, MainActivity::class.java).apply {
-                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
-                putExtra(MainActivity.EXTRA_OPEN_ALARM_ID, alarmId)
-            },
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
-        val time = SimpleDateFormat("M/d h:mm a", Locale.JAPAN).format(triggerAt)
-        val title = "次のアラーム $time"
-        val text = "$groupName ・ ${label.ifBlank { "ラベルなし" }}"
-        val notification = NotificationCompat.Builder(context, CHANNEL_NEXT_ALARM)
-            .setSmallIcon(R.drawable.ic_launcher_foreground)
-            .setContentTitle(title)
-            .setContentText(text)
-            .setStyle(NotificationCompat.BigTextStyle().bigText("$title\n$text\nタップして編集"))
-            .setPriority(NotificationCompat.PRIORITY_LOW)
-            .setCategory(NotificationCompat.CATEGORY_ALARM)
-            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
-            .setSilent(true)
-            .setOnlyAlertOnce(true)
-            .setOngoing(true)
-            .setShowWhen(false)
-            .setLocalOnly(true)
-            .setContentIntent(pi)
-            .build()
-        runCatching { nm.notify(NEXT_ALARM_STATUS_ID, notification) }
-    }
-
-    fun cancelNextAlarmStatus() {
-        runCatching { nm.cancel(NEXT_ALARM_STATUS_ID) }
+    fun cancelObsoleteNextAlarmStatus() {
+        runCatching { nm.cancel(OBSOLETE_NEXT_ALARM_STATUS_ID) }
     }
 
     /** 実行中タイマーの常駐通知。残り時間をカウントダウン表示し、キャンセル操作を提供する。 */
@@ -267,10 +223,9 @@ class NotificationHelper(private val context: Context) {
         const val CHANNEL_HEALTH = "schedule_health"
         const val CHANNEL_RELIABILITY_ALERT = "alarm_reliability_alerts"
         const val CHANNEL_TIMER = "timer_running"
-        const val CHANNEL_NEXT_ALARM = "next_alarm_status"
         const val FOREGROUND_ID = 42
         const val RELIABILITY_ALERT_ID = 43
         const val TIMER_ID_BASE = 44
-        const val NEXT_ALARM_STATUS_ID = 45
+        private const val OBSOLETE_NEXT_ALARM_STATUS_ID = 45
     }
 }

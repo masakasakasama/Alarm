@@ -49,7 +49,10 @@ class AlarmApplication : Application() {
         super.onCreate()
         instance = this
         container = AppContainer(this)
-        NotificationHelper(this).createChannels()
+        NotificationHelper(this).also {
+            it.createChannels()
+            it.cancelObsoleteNextAlarmStatus()
+        }
         // 実行中タイマーを復元(タブ移動・アプリ終了をまたいで生存)。
         runCatching { com.galaxyalarm.timer.TimerController.init(this) }
 
