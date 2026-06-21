@@ -98,7 +98,7 @@ class AlarmScheduler(
         return try {
             val pi = firePendingIntent(occ.id, alarmId, requestCode)
             if (alarmManager.canScheduleExactAlarms() || android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.S) {
-                val showPi = showPendingIntent(requestCode)
+                val showPi = showPendingIntent(alarmId, requestCode)
                 alarmManager.setAlarmClock(
                     AlarmManager.AlarmClockInfo(triggerAt, showPi), pi
                 )
@@ -150,9 +150,10 @@ class AlarmScheduler(
         )
     }
 
-    private fun showPendingIntent(requestCode: Int): PendingIntent {
+    private fun showPendingIntent(alarmId: Long, requestCode: Int): PendingIntent {
         val intent = Intent(context, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            putExtra(MainActivity.EXTRA_OPEN_ALARM_ID, alarmId)
         }
         return PendingIntent.getActivity(
             context, 900_000_000 + requestCode, intent,
