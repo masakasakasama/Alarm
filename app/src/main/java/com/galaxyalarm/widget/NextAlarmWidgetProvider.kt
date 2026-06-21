@@ -56,7 +56,8 @@ class NextAlarmWidgetProvider : AppWidgetProvider() {
         private fun buildSmallView(context: Context, next: WidgetAlarm?): RemoteViews {
             val views = RemoteViews(context.packageName, R.layout.widget_next_alarm_small)
             views.setTextViewText(R.id.widget_small_time, next?.clock ?: "--:--")
-            views.setOnClickPendingIntent(R.id.widget_small_root, openAppIntent(context))
+            views.setTextViewText(R.id.widget_small_label, next?.label ?: "予定なし")
+            views.setOnClickPendingIntent(R.id.widget_small_root, openAlarmIntent(context, next?.alarmId))
             return views
         }
 
@@ -68,8 +69,10 @@ class NextAlarmWidgetProvider : AppWidgetProvider() {
                 .map { alarm ->
                     val group = groups[alarm.groupId]
                     WidgetAlarm(
+                        alarmId = alarm.id,
                         time = NextTriggerCalculator.nextTrigger(alarm.hour, alarm.minute, alarm.weekdaysMask),
                         label = alarm.label.ifBlank { group?.name ?: "アラーム" },
+                        groupName = group?.name ?: "グループなし",
                         clock = formatClock(alarm.hour, alarm.minute)
                     )
                 }
@@ -84,19 +87,20 @@ class NextAlarmWidgetProvider : AppWidgetProvider() {
                 views.setTextViewText(R.id.widget_label, "アラームを追加してください")
             } else {
                 views.setTextViewText(R.id.widget_time, formatDateTime(next.time))
-                views.setTextViewText(R.id.widget_label, "${next.clock} ・ ${next.label}")
+                views.setTextViewText(R.id.widget_label, "${next.clock} ・ ${next.groupName} ・ ${next.label}")
             }
-            views.setOnClickPendingIntent(R.id.widget_root, openAppIntent(context))
+            views.setOnClickPendingIntent(R.id.widget_root, openAlarmIntent(context, next?.alarmId))
             return views
         }
 
-        private fun openAppIntent(context: Context): PendingIntent {
+        private fun openAlarmIntent(context: Context, alarmId: Long?): PendingIntent {
             val intent = Intent(context, MainActivity::class.java).apply {
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+                alarmId?.let { putExtra(MainActivity.EXTRA_OPEN_ALARM_ID, it) }
             }
             return PendingIntent.getActivity(
                 context,
-                1001,
+                1001 + (alarmId?.toInt() ?: 0),
                 intent,
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             )
@@ -114,8 +118,10 @@ class NextAlarmWidgetProvider : AppWidgetProvider() {
 }
 
 private data class WidgetAlarm(
+    val alarmId: Long,
     val time: Long,
     val label: String,
+    val groupName: String,
     val clock: String,
 )
 

@@ -133,16 +133,22 @@ fun NextAlarmCard(vm: MainViewModel, onAddAlarm: () -> Unit, onEditAlarm: (Long)
                 Text("次のアラーム", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 if (nextAlarm == null) {
                     Text("予定なし", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+                    Text("追加するとここに次回時刻が出ます", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 } else {
                     val row = nextAlarm!!
-                    Text(TimeFormat.nextTrigger(row.nextTriggerAt), style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+                    Text(TimeFormat.clock(row.nextTriggerAt!!), style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
                     Text(
-                        row.alarm.label.ifBlank { row.groupName },
+                        "所属: ${row.groupName} / ${row.alarm.label.ifBlank { "ラベルなし" }}",
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
+                    Text("タップしてこのアラームを編集", color = MaterialTheme.colorScheme.primary)
                 }
             }
-            TextButton(onClick = onAddAlarm) { Text("+ 追加") }
+            if (nextAlarm == null) {
+                TextButton(onClick = onAddAlarm) { Text("+ 追加") }
+            } else {
+                TextButton(onClick = { onEditAlarm(nextAlarm!!.alarm.id) }) { Text("編集") }
+            }
         }
     }
 }

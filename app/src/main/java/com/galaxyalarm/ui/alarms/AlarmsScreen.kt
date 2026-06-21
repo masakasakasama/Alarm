@@ -234,7 +234,13 @@ private fun AlarmCard(row: AlarmRow, onToggle: (Boolean) -> Unit, onClick: () ->
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 Spacer(Modifier.height(6.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    "所属: ${row.groupName}",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.primary
+                )
+                Spacer(Modifier.height(6.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                     SoundModePill(row.alarm.soundMode)
                     when {
                         row.nextTriggerAt != null -> StatusPill(TimeFormat.nextTriggerDay(row.nextTriggerAt), PillLevel.OK)
@@ -255,12 +261,14 @@ private fun GroupSummaryCard(row: GroupRow, onOpen: () -> Unit, onToggle: (Boole
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Text(row.group.name, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
-                Text("有効 ${row.enabledCount} / 全 ${row.totalCount} 件", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("このグループに紐付くアラーム: 有効 ${row.enabledCount} / 全 ${row.totalCount} 件", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Spacer(Modifier.height(6.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                     StatusPill(if (row.isOn) "ON" else "OFF", if (row.isOn) PillLevel.OK else PillLevel.WARN)
                     Text("次回 " + TimeFormat.nextTrigger(row.nextTriggerAt), color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
+                Spacer(Modifier.height(6.dp))
+                Text("タップで中身を表示", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelMedium)
             }
             Switch(checked = row.isOn, onCheckedChange = onToggle)
             Icon(Icons.Filled.ChevronRight, contentDescription = "開く")

@@ -24,4 +24,16 @@
         android:textColor="#F7F5FF"
         android:textSize="14sp"
         android:textStyle="bold" />
+
+    <TextView
+        android:id="@+id/widget_small_label"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:ellipsize="end"
+        android:gravity="center"
+        android:includeFontPadding="false"
+        android:maxLines="1"
+        android:text="予定なし"
+        android:textColor="#AAA6B8"
+        android:textSize="9sp" />
 </LinearLayout>

@@ -13,6 +13,7 @@ import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -43,7 +44,7 @@ private val tabs = listOf(
 )
 
 @Composable
-fun AppNavigation() {
+fun AppNavigation(editAlarmRequest: Long? = null) {
     val navController = rememberNavController()
     val mainVm: MainViewModel = viewModel()
     val backStack by navController.currentBackStackEntryAsState()
@@ -54,6 +55,14 @@ fun AppNavigation() {
         currentRoute == "log" -> "settings"
         currentRoute == "reliability" -> "settings"
         else -> currentRoute
+    }
+
+    LaunchedEffect(editAlarmRequest) {
+        editAlarmRequest?.let { id ->
+            navController.navigate("edit/$id") {
+                launchSingleTop = true
+            }
+        }
     }
 
     Scaffold(

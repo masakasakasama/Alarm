@@ -1,6 +1,7 @@
 package com.galaxyalarm
 
 import android.Manifest
+import android.content.Intent
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -23,20 +24,28 @@ import com.galaxyalarm.update.UpdateChecker
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
+    private val editAlarmRequest = mutableStateOf<Long?>(null)
 
     private val notifPermLauncher =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        editAlarmRequest.value = intent.openAlarmId()
         enableEdgeToEdge()
         requestNotificationPermissionIfNeeded()
         setContent {
             GalaxyAlarmTheme {
-                Surface(Modifier.fillMaxSize()) { AppNavigation() }
+                Surface(Modifier.fillMaxSize()) { AppNavigation(editAlarmRequest.value) }
                 StartupAutoUpdate()
             }
         }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        editAlarmRequest.value = intent.openAlarmId()
     }
 
     override fun onResume() {
@@ -55,6 +64,13 @@ class MainActivity : ComponentActivity() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             notifPermLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
+    }
+
+    private fun Intent.openAlarmId(): Long? =
+        getLongExtra(EXTRA_OPEN_ALARM_ID, -1L).takeIf { it > 0L }
+
+    companion object {
+        const val EXTRA_OPEN_ALARM_ID = "com.galaxyalarm.extra.OPEN_ALARM_ID"
     }
 }
 

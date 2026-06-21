@@ -6,6 +6,7 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.graphics.Color
 import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationCompat.Action
@@ -175,19 +176,36 @@ class NotificationHelper(private val context: Context) {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
+        val publicNotification = NotificationCompat.Builder(context, CHANNEL_ALARM)
+            .setSmallIcon(R.drawable.ic_launcher_foreground)
+            .setContentTitle(if (label.isBlank()) "アラーム" else label)
+            .setContentText("$timeText  停止できます")
+            .setPriority(NotificationCompat.PRIORITY_MAX)
+            .setCategory(NotificationCompat.CATEGORY_ALARM)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .setOngoing(true)
+            .setFullScreenIntent(fullScreenPi, true)
+            .setContentIntent(fullScreenPi)
+            .addAction(Action.Builder(0, "停止", stopPi).setAuthenticationRequired(false).build())
+            .addAction(Action.Builder(0, "スヌーズ", snoozePi).setAuthenticationRequired(false).build())
+            .build()
+
         return NotificationCompat.Builder(context, CHANNEL_ALARM)
             .setSmallIcon(R.drawable.ic_launcher_foreground)
             .setContentTitle(if (label.isBlank()) "アラーム" else label)
             .setContentText("$timeText  鳴動中")
-            .setSubText("ロック画面で操作できます")
+            .setSubText("ロック画面で停止できます")
             .setPriority(NotificationCompat.PRIORITY_MAX)
             .setCategory(NotificationCompat.CATEGORY_ALARM)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .setPublicVersion(publicNotification)
             .setOngoing(true)
             .setAutoCancel(false)
             .setShowWhen(true)
             .setWhen(System.currentTimeMillis())
             .setLocalOnly(true)
+            .setColor(Color.rgb(83, 136, 255))
+            .setColorized(true)
             .setFullScreenIntent(fullScreenPi, true)
             .setContentIntent(fullScreenPi)
             .addAction(Action.Builder(0, "停止", stopPi).setAuthenticationRequired(false).build())
