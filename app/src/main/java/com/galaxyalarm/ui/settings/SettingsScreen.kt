@@ -4,6 +4,7 @@ import android.content.Intent
 import android.net.Uri
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -15,19 +16,23 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import com.galaxyalarm.prefs.GlobalAlarmPrefs
 import com.galaxyalarm.BuildConfig
 import com.galaxyalarm.backup.GitHubBackupClient
 import com.galaxyalarm.backup.GitHubBackupSettings
@@ -44,18 +49,48 @@ fun SettingsScreen(vm: MainViewModel, onOpenLog: () -> Unit, onOpenReliability: 
     val scope = rememberCoroutineScope()
     val backupStore = remember { GitHubBackupStore(context.applicationContext) }
     val savedBackupSettings = remember { backupStore.load() }
+    val globalPrefs = remember { GlobalAlarmPrefs(context.applicationContext) }
 
     var updateText by remember { mutableStateOf("未確認") }
     var releaseUrl by remember { mutableStateOf<String?>(null) }
     var token by remember { mutableStateOf(savedBackupSettings.token) }
     var gistId by remember { mutableStateOf(savedBackupSettings.gistId) }
     var backupText by remember { mutableStateOf("未実行") }
+    var fadeInSeconds by remember { mutableIntStateOf(globalPrefs.fadeInSeconds) }
 
     Column(
         Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         Text("設定", style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
+
+        SectionCard(Modifier.fillMaxWidth()) {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("アラーム音", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Text("フェードイン (徐々に音量を上げる)", modifier = Modifier.weight(1f))
+                    Switch(
+                        checked = fadeInSeconds > 0,
+                        onCheckedChange = {
+                            fadeInSeconds = if (it) 30 else 0
+                            globalPrefs.fadeInSeconds = fadeInSeconds
+                        }
+                    )
+                }
+                if (fadeInSeconds > 0) {
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Text("フェードイン時間", modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
+                        OutlinedButton(onClick = {
+                            if (fadeInSeconds > 5) { fadeInSeconds -= 5; globalPrefs.fadeInSeconds = fadeInSeconds }
+                        }) { Text("-") }
+                        Text("${fadeInSeconds}秒", modifier = Modifier.padding(horizontal = 12.dp), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                        OutlinedButton(onClick = {
+                            if (fadeInSeconds < 120) { fadeInSeconds += 5; globalPrefs.fadeInSeconds = fadeInSeconds }
+                        }) { Text("+") }
+                    }
+                }
+            }
+        }
 
         // 信頼性チェックは下タブから外したため、設定の最上部から開けるようにする。
         SectionCard(Modifier.fillMaxWidth()) {
