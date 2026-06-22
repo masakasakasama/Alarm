@@ -222,39 +222,42 @@ private fun AlarmCard(row: AlarmRow, onToggle: (Boolean) -> Unit, onClick: () ->
             verticalAlignment = Alignment.CenterVertically
         ) {
             val isAm = row.alarm.hour < 12
-            Text(
-                TimeFormat.hourMinuteOnly(row.alarm.hour, row.alarm.minute),
-                fontSize = 26.sp,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onSurface
-            )
-            Text(
-                if (isAm) " AM" else " PM",
-                fontSize = 13.sp,
-                fontWeight = FontWeight.SemiBold,
-                color = if (isAm) AmColor else PmColor
-            )
-            Spacer(Modifier.width(8.dp))
             val label = row.alarm.label.trim()
-            Text(
-                if (label.isBlank()) Weekdays.label(row.alarm.weekdaysMask) else "$label ・ ${Weekdays.label(row.alarm.weekdaysMask)}",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.weight(1f),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-            Spacer(Modifier.width(6.dp))
-            SoundModePill(row.alarm.soundMode)
-            Spacer(Modifier.width(4.dp))
-            when {
-                row.nextTriggerAt != null -> Text(TimeFormat.nextTriggerDay(row.nextTriggerAt), color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelMedium)
-                row.alarm.enabled && !row.groupEnabled -> StatusPill("G-OFF", PillLevel.WARN)
-                row.alarm.enabled -> StatusPill("未予約", PillLevel.DANGER)
-                else -> StatusPill("OFF", PillLevel.WARN)
+            Column(Modifier.weight(1f)) {
+                Row(verticalAlignment = Alignment.Bottom) {
+                    Text(
+                        TimeFormat.hourMinuteOnly(row.alarm.hour, row.alarm.minute),
+                        fontSize = 34.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Text(
+                        if (isAm) " AM" else " PM",
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = if (isAm) AmColor else PmColor
+                    )
+                    Spacer(Modifier.width(6.dp))
+                    Text(
+                        if (label.isBlank()) Weekdays.label(row.alarm.weekdaysMask) else "$label ・ ${Weekdays.label(row.alarm.weekdaysMask)}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.padding(bottom = 3.dp)
+                    )
+                }
             }
-            Spacer(Modifier.width(6.dp))
-            Switch(checked = row.alarm.enabled, onCheckedChange = onToggle)
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                SoundModePill(row.alarm.soundMode)
+                when {
+                    row.nextTriggerAt != null -> Text(TimeFormat.nextTriggerDay(row.nextTriggerAt), color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelMedium)
+                    row.alarm.enabled && !row.groupEnabled -> StatusPill("G-OFF", PillLevel.WARN)
+                    row.alarm.enabled -> StatusPill("未予約", PillLevel.DANGER)
+                    else -> StatusPill("OFF", PillLevel.WARN)
+                }
+                Switch(checked = row.alarm.enabled, onCheckedChange = onToggle)
+            }
         }
     }
 }
