@@ -233,17 +233,19 @@ private fun AlarmCard(row: AlarmRow, onToggle: (Boolean) -> Unit, onClick: () ->
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-                Spacer(Modifier.height(4.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            }
+            Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Switch(checked = row.alarm.enabled, onCheckedChange = onToggle)
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
                     SoundModePill(row.alarm.soundMode)
                     when {
                         row.nextTriggerAt != null -> Text(TimeFormat.nextTriggerDay(row.nextTriggerAt), color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelMedium)
-                        row.alarm.enabled && !row.groupEnabled -> StatusPill("グループOFF", PillLevel.WARN)
+                        row.alarm.enabled && !row.groupEnabled -> StatusPill("G-OFF", PillLevel.WARN)
                         row.alarm.enabled -> StatusPill("未予約", PillLevel.DANGER)
+                        else -> StatusPill("OFF", PillLevel.WARN)
                     }
                 }
             }
-            Switch(checked = row.alarm.enabled, onCheckedChange = onToggle)
         }
     }
 }
