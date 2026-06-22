@@ -208,7 +208,7 @@ private fun AlarmCard(row: AlarmRow, onToggle: (Boolean) -> Unit, onClick: () ->
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
     ) {
         Row(
-            Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp),
+            Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Column(Modifier.weight(1f)) {
@@ -235,6 +235,7 @@ private fun AlarmCard(row: AlarmRow, onToggle: (Boolean) -> Unit, onClick: () ->
                 )
                 Spacer(Modifier.height(4.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    SoundModePill(row.alarm.soundMode)
                     when {
                         row.nextTriggerAt != null -> Text(TimeFormat.nextTriggerDay(row.nextTriggerAt), color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelMedium)
                         row.alarm.enabled && !row.groupEnabled -> StatusPill("グループOFF", PillLevel.WARN)
@@ -242,10 +243,7 @@ private fun AlarmCard(row: AlarmRow, onToggle: (Boolean) -> Unit, onClick: () ->
                     }
                 }
             }
-            Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Switch(checked = row.alarm.enabled, onCheckedChange = onToggle)
-                SoundModePill(row.alarm.soundMode)
-            }
+            Switch(checked = row.alarm.enabled, onCheckedChange = onToggle)
         }
     }
 }
