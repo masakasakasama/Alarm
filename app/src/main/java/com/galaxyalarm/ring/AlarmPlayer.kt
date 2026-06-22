@@ -13,6 +13,12 @@ import android.os.VibratorManager
 import android.util.Log
 import com.galaxyalarm.data.model.SoundMode
 import com.galaxyalarm.data.model.VibrationPattern
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 class AlarmPlayer(private val context: Context) {
 
@@ -25,16 +31,19 @@ class AlarmPlayer(private val context: Context) {
             context.getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
         }
     }
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private var fadeJob: Job? = null
 
     fun start(
         soundMode: SoundMode,
         ringtoneUri: String?,
         vibrationEnabled: Boolean,
         pattern: VibrationPattern,
+        fadeInSeconds: Int = 0,
     ) {
         when (soundMode) {
             SoundMode.SOUND -> {
-                playSound(ringtoneUri)
+                playSound(ringtoneUri, fadeInSeconds)
                 if (vibrationEnabled) vibrate(pattern)
             }
             SoundMode.VIBRATE_ONLY,
@@ -44,11 +53,12 @@ class AlarmPlayer(private val context: Context) {
         }
     }
 
-    private fun playSound(ringtoneUri: String?) {
+    private fun playSound(ringtoneUri: String?, fadeInSeconds: Int) {
         try {
             val uri: Uri = ringtoneUri?.let { Uri.parse(it) }
                 ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
                 ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE)
+            val startVol = if (fadeInSeconds > 0) 0.05f else 1.0f
             player = MediaPlayer().apply {
                 setDataSource(context, uri)
                 setAudioAttributes(
@@ -58,7 +68,11 @@ class AlarmPlayer(private val context: Context) {
                         .build()
                 )
                 isLooping = true
-                setOnPreparedListener { it.start() }
+                setOnPreparedListener { mp ->
+                    mp.setVolume(startVol, startVol)
+                    mp.start()
+                    if (fadeInSeconds > 0) startFade(fadeInSeconds)
+                }
                 prepareAsync()
             }
             val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
@@ -69,6 +83,20 @@ class AlarmPlayer(private val context: Context) {
             )
         } catch (e: Exception) {
             Log.e(TAG, "playSound failed", e)
+        }
+    }
+
+    private fun startFade(fadeInSeconds: Int) {
+        fadeJob?.cancel()
+        fadeJob = scope.launch {
+            val steps = fadeInSeconds.coerceAtLeast(1)
+            val increment = (1.0f - 0.05f) / steps
+            var vol = 0.05f
+            repeat(steps) {
+                delay(1000L)
+                vol = (vol + increment).coerceAtMost(1.0f)
+                player?.setVolume(vol, vol)
+            }
         }
     }
 
@@ -87,6 +115,8 @@ class AlarmPlayer(private val context: Context) {
     }
 
     fun stop() {
+        fadeJob?.cancel()
+        fadeJob = null
         try {
             player?.let {
                 if (it.isPlaying) it.stop()

@@ -114,7 +114,7 @@ class AlarmService : Service() {
                 )
                 // スタック最上段の音/バイブを再生。
                 player.stop()
-                player.start(alarm.soundMode, alarm.ringtoneUri, alarm.vibrationEnabled, alarm.vibrationPattern)
+                player.start(alarm.soundMode, alarm.ringtoneUri, alarm.vibrationEnabled, alarm.vibrationPattern, alarm.fadeInSeconds)
                 // 画面OFF/ロック中のみ全画面を直接起動。使用中は全画面で乗っ取らず、
                 // ヘッドアップ通知(停止/スヌーズボタン付き)のポップアップで操作してもらう。
                 if (shouldLaunchFullScreen()) {
@@ -258,7 +258,7 @@ class AlarmService : Service() {
                     handler.post {
                         player.stop()
                         if (alarm != null) {
-                            player.start(alarm.soundMode, alarm.ringtoneUri, alarm.vibrationEnabled, alarm.vibrationPattern)
+                            player.start(alarm.soundMode, alarm.ringtoneUri, alarm.vibrationEnabled, alarm.vibrationPattern, alarm.fadeInSeconds)
                             startForeground(
                                 NotificationHelper.FOREGROUND_ID,
                                 notifier.buildAlarmNotification(top.occurrenceId, top.alarmId, top.label, top.timeText)

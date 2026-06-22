@@ -45,6 +45,7 @@ data class AlarmItem(
     val snoozeMinutes: Int = 5,
     val maxSnoozeCount: Int = 3,
     val autoStopMinutes: Int = 5,
+    val fadeInSeconds: Int = 0,
     val createdAt: Long = System.currentTimeMillis(),
     val updatedAt: Long = System.currentTimeMillis(),
 )

@@ -205,6 +205,20 @@ fun EditAlarmScreen(alarmId: Long, groupId: Long = 0L, onDone: () -> Unit, vm: E
             }
         }
 
+        SectionCard(Modifier.fillMaxWidth()) {
+            Column {
+                ToggleRow("フェードイン (徐々に音量を上げる)", alarm.fadeInSeconds > 0) { enabled ->
+                    vm.update { it.copy(fadeInSeconds = if (enabled) 30 else 0) }
+                }
+                if (alarm.fadeInSeconds > 0) {
+                    Spacer(Modifier.height(8.dp))
+                    Stepper("フェードイン時間 (秒)", alarm.fadeInSeconds, 5, 120) { value ->
+                        vm.update { it.copy(fadeInSeconds = value) }
+                    }
+                }
+            }
+        }
+
         Button(onClick = { vm.save(onDone) }, modifier = Modifier.fillMaxWidth()) { Text("保存") }
         if (alarmId > 0) {
             OutlinedButton(
