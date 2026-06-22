@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -42,6 +43,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -210,51 +212,49 @@ fun AlarmsScreen(
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun AlarmCard(row: AlarmRow, onToggle: (Boolean) -> Unit, onClick: () -> Unit, onLongClick: () -> Unit) {
-    // タップで編集、長押しで複製。
     Card(
         modifier = Modifier.fillMaxWidth().combinedClickable(onClick = onClick, onLongClick = onLongClick),
         shape = RoundedCornerShape(18.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
     ) {
         Row(
-            Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp),
+            Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Column(Modifier.weight(1f)) {
-                val isAm = row.alarm.hour < 12
-                Row(verticalAlignment = Alignment.Bottom) {
-                    Text(
-                        TimeFormat.hourMinuteOnly(row.alarm.hour, row.alarm.minute),
-                        fontSize = 36.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                    Text(
-                        if (isAm) " AM" else " PM",
-                        fontSize = 20.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = if (isAm) AmColor else PmColor
-                    )
-                }
-                val label = row.alarm.label.trim()
-                Text(
-                    if (label.isBlank()) Weekdays.label(row.alarm.weekdaysMask) else "$label ・ ${Weekdays.label(row.alarm.weekdaysMask)}",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+            val isAm = row.alarm.hour < 12
+            Text(
+                TimeFormat.hourMinuteOnly(row.alarm.hour, row.alarm.minute),
+                fontSize = 26.sp,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            Text(
+                if (isAm) " AM" else " PM",
+                fontSize = 13.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = if (isAm) AmColor else PmColor
+            )
+            Spacer(Modifier.width(8.dp))
+            val label = row.alarm.label.trim()
+            Text(
+                if (label.isBlank()) Weekdays.label(row.alarm.weekdaysMask) else "$label ・ ${Weekdays.label(row.alarm.weekdaysMask)}",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.weight(1f),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Spacer(Modifier.width(6.dp))
+            SoundModePill(row.alarm.soundMode)
+            Spacer(Modifier.width(4.dp))
+            when {
+                row.nextTriggerAt != null -> Text(TimeFormat.nextTriggerDay(row.nextTriggerAt), color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelMedium)
+                row.alarm.enabled && !row.groupEnabled -> StatusPill("G-OFF", PillLevel.WARN)
+                row.alarm.enabled -> StatusPill("未予約", PillLevel.DANGER)
+                else -> StatusPill("OFF", PillLevel.WARN)
             }
-            Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Switch(checked = row.alarm.enabled, onCheckedChange = onToggle)
-                Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
-                    SoundModePill(row.alarm.soundMode)
-                    when {
-                        row.nextTriggerAt != null -> Text(TimeFormat.nextTriggerDay(row.nextTriggerAt), color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelMedium)
-                        row.alarm.enabled && !row.groupEnabled -> StatusPill("G-OFF", PillLevel.WARN)
-                        row.alarm.enabled -> StatusPill("未予約", PillLevel.DANGER)
-                        else -> StatusPill("OFF", PillLevel.WARN)
-                    }
-                }
-            }
+            Spacer(Modifier.width(6.dp))
+            Switch(checked = row.alarm.enabled, onCheckedChange = onToggle)
         }
     }
 }
