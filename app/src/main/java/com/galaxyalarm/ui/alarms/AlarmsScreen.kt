@@ -84,6 +84,7 @@ fun AlarmsScreen(
     }
     val groupedRows = if (showingGroup) emptyList() else groupRows.filter { it.totalCount > 0 }
     var actionTarget by remember { mutableStateOf<AlarmRow?>(null) }
+    val allEnabled = rows.isNotEmpty() && rows.all { it.alarm.enabled }
 
     LazyColumn(
         Modifier.fillMaxWidth().padding(horizontal = 16.dp),
@@ -102,7 +103,15 @@ fun AlarmsScreen(
                         Text("グループなしのアラーム", color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
-                TextButton(onClick = onAddAlarm) { Text("+ 追加") }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (rows.isNotEmpty()) {
+                        Switch(
+                            checked = allEnabled,
+                            onCheckedChange = { vm.toggleAllAlarms(rows, it) },
+                        )
+                    }
+                    TextButton(onClick = onAddAlarm) { Text("+ 追加") }
+                }
             }
         }
 

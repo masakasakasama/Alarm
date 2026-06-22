@@ -111,6 +111,12 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     fun toggleAlarm(alarm: AlarmItem, enabled: Boolean) =
         viewModelScope.launch { repo.setAlarmEnabled(alarm.id, enabled); refreshWidgets(); runCheck(); backupIfConfigured() }
 
+    fun toggleAllAlarms(rows: List<AlarmRow>, enabled: Boolean) =
+        viewModelScope.launch {
+            rows.forEach { repo.setAlarmEnabled(it.alarm.id, enabled) }
+            refreshWidgets(); runCheck(); backupIfConfigured()
+        }
+
     fun deleteAlarm(alarm: AlarmItem) = viewModelScope.launch { repo.deleteAlarm(alarm); refreshWidgets(); runCheck(); backupIfConfigured() }
 
     /** アラームを複製(長押し用)。同じグループに同設定のコピーを作る。 */
