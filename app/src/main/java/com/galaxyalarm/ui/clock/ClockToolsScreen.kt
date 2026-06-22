@@ -138,7 +138,11 @@ fun NextAlarmCard(vm: MainViewModel, onAddAlarm: () -> Unit, onEditAlarm: (Long)
                     val row = nextAlarm!!
                     Text(TimeFormat.clock(row.nextTriggerAt!!), style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
                     Text(
-                        "所属: ${row.groupName} / ${row.alarm.label.ifBlank { "ラベルなし" }}",
+                        TimeFormat.remaining(row.nextTriggerAt) + " / " + TimeFormat.nextTrigger(row.nextTriggerAt),
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    Text(
+                        "所属: ${row.groupName}" + row.alarm.label.takeIf { it.isNotBlank() }?.let { " / $it" }.orEmpty(),
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     Text("タップしてこのアラームを編集", color = MaterialTheme.colorScheme.primary)

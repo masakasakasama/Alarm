@@ -14,12 +14,15 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -107,6 +110,15 @@ fun AlarmsScreen(
         if (!showingGroup) {
             item { NowCard() }
             item { NextAlarmCard(vm = vm, onAddAlarm = onAddAlarm, onEditAlarm = onEditAlarm) }
+            if (groupedRows.isNotEmpty()) {
+                item {
+                    GroupStrip(
+                        rows = groupedRows,
+                        onOpenGroup = onOpenGroup,
+                        onToggle = { group, enabled -> vm.toggleGroup(group, enabled) }
+                    )
+                }
+            }
             item { RunningTimerCard() }
         }
 
@@ -159,24 +171,6 @@ fun AlarmsScreen(
             }
         }
 
-        if (groupedRows.isNotEmpty()) {
-            item {
-                Text(
-                    "グループ",
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier.padding(top = 10.dp)
-                )
-            }
-            items(groupedRows, key = { it.group.id }) { row ->
-                GroupSummaryCard(
-                    row = row,
-                    onOpen = { onOpenGroup(row.group.id) },
-                    onToggle = { vm.toggleGroup(row.group, it) }
-                )
-            }
-        }
-
         // 世界時計は一覧の最後に置く(旧・時計タブの内容)。
         if (!showingGroup) {
             item { WorldClockCard() }
@@ -208,10 +202,15 @@ fun AlarmsScreen(
 @Composable
 private fun AlarmCard(row: AlarmRow, onToggle: (Boolean) -> Unit, onClick: () -> Unit, onLongClick: () -> Unit) {
     // タップで編集、長押しで複製。
-    SectionCard(
-        modifier = Modifier.fillMaxWidth().combinedClickable(onClick = onClick, onLongClick = onLongClick)
+    Card(
+        modifier = Modifier.fillMaxWidth().combinedClickable(onClick = onClick, onLongClick = onLongClick),
+        shape = RoundedCornerShape(18.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
     ) {
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
             Column(Modifier.weight(1f)) {
                 val isAm = row.alarm.hour < 12
                 Row(verticalAlignment = Alignment.Bottom) {
@@ -228,50 +227,61 @@ private fun AlarmCard(row: AlarmRow, onToggle: (Boolean) -> Unit, onClick: () ->
                         color = if (isAm) AmColor else PmColor
                     )
                 }
+                val label = row.alarm.label.trim()
                 Text(
-                    row.alarm.label.ifBlank { "ラベルなし" } + " ・ " + Weekdays.label(row.alarm.weekdaysMask),
+                    if (label.isBlank()) Weekdays.label(row.alarm.weekdaysMask) else "$label ・ ${Weekdays.label(row.alarm.weekdaysMask)}",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-                Spacer(Modifier.height(6.dp))
-                Text(
-                    "所属: ${row.groupName}",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.primary
-                )
-                Spacer(Modifier.height(6.dp))
+                Spacer(Modifier.height(4.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    SoundModePill(row.alarm.soundMode)
                     when {
-                        row.nextTriggerAt != null -> StatusPill(TimeFormat.nextTriggerDay(row.nextTriggerAt), PillLevel.OK)
+                        row.nextTriggerAt != null -> Text(TimeFormat.nextTriggerDay(row.nextTriggerAt), color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelMedium)
                         row.alarm.enabled && !row.groupEnabled -> StatusPill("グループOFF", PillLevel.WARN)
-                        !row.alarm.enabled -> StatusPill("OFF", PillLevel.WARN)
-                        else -> StatusPill("未予約", PillLevel.DANGER)
+                        row.alarm.enabled -> StatusPill("未予約", PillLevel.DANGER)
                     }
                 }
             }
-            Switch(checked = row.alarm.enabled, onCheckedChange = onToggle)
+            Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Switch(checked = row.alarm.enabled, onCheckedChange = onToggle)
+                SoundModePill(row.alarm.soundMode)
+            }
         }
     }
 }
 
 @Composable
-private fun GroupSummaryCard(row: GroupRow, onOpen: () -> Unit, onToggle: (Boolean) -> Unit) {
-    SectionCard(modifier = Modifier.fillMaxWidth(), onClick = onOpen) {
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f)) {
-                Text(row.group.name, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
-                Text("このグループに紐付くアラーム: 有効 ${row.enabledCount} / 全 ${row.totalCount} 件", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Spacer(Modifier.height(6.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    StatusPill(if (row.isOn) "ON" else "OFF", if (row.isOn) PillLevel.OK else PillLevel.WARN)
-                    Text("次回 " + TimeFormat.nextTrigger(row.nextTriggerAt), color = MaterialTheme.colorScheme.onSurfaceVariant)
+private fun GroupStrip(
+    rows: List<GroupRow>,
+    onOpenGroup: (Long) -> Unit,
+    onToggle: (com.galaxyalarm.data.entity.AlarmGroup, Boolean) -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text("グループ", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+        LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            items(rows, key = { it.group.id }) { row ->
+                Card(
+                    onClick = { onOpenGroup(row.group.id) },
+                    shape = RoundedCornerShape(18.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                    modifier = Modifier.fillParentMaxWidth(0.72f)
+                ) {
+                    Row(
+                        Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text(row.group.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                            Text("有効 ${row.enabledCount} / 全 ${row.totalCount}", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text("次回 " + TimeFormat.nextTrigger(row.nextTriggerAt), color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelMedium)
+                        }
+                        Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Switch(checked = row.isOn, onCheckedChange = { onToggle(row.group, it) })
+                            Icon(Icons.Filled.ChevronRight, contentDescription = "開く")
+                        }
+                    }
                 }
-                Spacer(Modifier.height(6.dp))
-                Text("タップで中身を表示", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelMedium)
             }
-            Switch(checked = row.isOn, onCheckedChange = onToggle)
-            Icon(Icons.Filled.ChevronRight, contentDescription = "開く")
         }
     }
 }
