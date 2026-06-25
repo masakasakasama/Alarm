@@ -41,6 +41,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.galaxyalarm.timer.StopwatchController
 import com.galaxyalarm.timer.TimerController
 import com.galaxyalarm.timer.TimerEntry
+import com.galaxyalarm.timer.TimerHistoryEntry
 import com.galaxyalarm.ui.MainViewModel
 import com.galaxyalarm.ui.TimeFormat
 import com.galaxyalarm.ui.components.PillLevel
@@ -292,12 +293,10 @@ private fun ActiveTimerCard(entry: TimerEntry, onCancel: () -> Unit) {
                 StatusPill("実行中", PillLevel.OK)
             }
             Spacer(Modifier.height(8.dp))
-            Text(formatSeconds(remaining), style = MaterialTheme.typography.displayLarge, fontWeight = FontWeight.Bold)
-            Text(
-                if (entry.soundOn) "時間が来たらアラームとして鳴ります(タブを移動しても継続)"
-                else "時間が来たら音なし(バイブのみ)で知らせます(タブを移動しても継続)",
-                style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(formatSeconds(remaining), style = MaterialTheme.typography.displayLarge, fontWeight = FontWeight.Bold)
+                StatusPill(if (entry.soundOn) "音あり" else "音なし", if (entry.soundOn) PillLevel.OK else PillLevel.WARN)
+            }
             Spacer(Modifier.height(10.dp))
             Button(onClick = onCancel, modifier = Modifier.fillMaxWidth()) { Text("キャンセル") }
         }
@@ -306,7 +305,7 @@ private fun ActiveTimerCard(entry: TimerEntry, onCancel: () -> Unit) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun AddTimerForm(history: List<Int>, onStart: (Int, Boolean) -> Unit) {
+private fun AddTimerForm(history: List<TimerHistoryEntry>, onStart: (Int, Boolean) -> Unit) {
     var hours by rememberSaveable { mutableIntStateOf(0) }
     var minutes by rememberSaveable { mutableIntStateOf(5) }
     var seconds by rememberSaveable { mutableIntStateOf(0) }
@@ -345,10 +344,23 @@ private fun AddTimerForm(history: List<Int>, onStart: (Int, Boolean) -> Unit) {
                     Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    history.forEach { sec ->
+                    history.forEach { entry ->
                         OutlinedButton(onClick = {
-                            hours = sec / 3600; minutes = (sec / 60) % 60; seconds = sec % 60; resetKey++
-                        }) { Text(formatSeconds(sec)) }
+                            hours = entry.seconds / 3600
+                            minutes = (entry.seconds / 60) % 60
+                            seconds = entry.seconds % 60
+                            soundOn = entry.soundOn
+                            resetKey++
+                        }) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text(formatSeconds(entry.seconds))
+                                Text(
+                                    if (entry.soundOn) "音あり" else "音なし",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
                     }
                 }
             }

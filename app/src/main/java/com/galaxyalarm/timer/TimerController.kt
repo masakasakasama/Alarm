@@ -19,6 +19,8 @@ data class TimerEntry(
     val soundOn: Boolean,
 )
 
+data class TimerHistoryEntry(val seconds: Int, val soundOn: Boolean)
+
 object TimerController {
     private const val PREFS = "timer_state"
     private const val KEY_IDS = "timer_ids"
@@ -31,8 +33,8 @@ object TimerController {
     private val _timers = MutableStateFlow<List<TimerEntry>>(emptyList())
     val timers: StateFlow<List<TimerEntry>> = _timers
 
-    private val _history = MutableStateFlow<List<Int>>(emptyList())
-    val history: StateFlow<List<Int>> = _history
+    private val _history = MutableStateFlow<List<TimerHistoryEntry>>(emptyList())
+    val history: StateFlow<List<TimerHistoryEntry>> = _history
 
     private fun prefs(context: Context) =
         (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N)
@@ -110,7 +112,7 @@ object TimerController {
         val entry = TimerEntry(id, endAt, durationSeconds, soundOn)
         val newTimers = _timers.value + entry
         _timers.value = newTimers
-        val newHistory = addToHistory(_history.value, durationSeconds)
+        val newHistory = addToHistory(_history.value, TimerHistoryEntry(durationSeconds, soundOn))
         _history.value = newHistory
         with(p.edit()) {
             putInt(KEY_NEXT_ID, id + 1)
@@ -118,7 +120,7 @@ object TimerController {
             putLong("timer_${id}_endAt", endAt)
             putInt("timer_${id}_total", durationSeconds)
             putBoolean("timer_${id}_sound", soundOn)
-            putString(KEY_HISTORY, newHistory.joinToString(","))
+            putString(KEY_HISTORY, encodeHistory(newHistory))
             apply()
         }
         runCatching { schedule(context, entry) }
@@ -155,11 +157,24 @@ object TimerController {
 
     fun occurrenceId(timerId: Int): Long = OCCURRENCE_ID_BASE - timerId
 
-    private fun parseHistory(csv: String): List<Int> =
-        csv.split(",").mapNotNull { it.trim().toIntOrNull() }.filter { it > 0 }.take(MAX_HISTORY)
+    private fun parseHistory(csv: String): List<TimerHistoryEntry> =
+        csv.split(",").mapNotNull { token ->
+            val t = token.trim()
+            if (t.contains(":")) {
+                val (s, sound) = t.split(":", limit = 2)
+                val sec = s.toIntOrNull() ?: return@mapNotNull null
+                TimerHistoryEntry(sec, sound != "0")
+            } else {
+                val sec = t.toIntOrNull() ?: return@mapNotNull null
+                TimerHistoryEntry(sec, true)
+            }
+        }.filter { it.seconds > 0 }.take(MAX_HISTORY)
 
-    private fun addToHistory(current: List<Int>, seconds: Int): List<Int> =
-        (listOf(seconds) + current.filter { it != seconds }).take(MAX_HISTORY)
+    private fun encodeHistory(list: List<TimerHistoryEntry>): String =
+        list.joinToString(",") { "${it.seconds}:${if (it.soundOn) "1" else "0"}" }
+
+    private fun addToHistory(current: List<TimerHistoryEntry>, entry: TimerHistoryEntry): List<TimerHistoryEntry> =
+        (listOf(entry) + current.filter { it.seconds != entry.seconds }).take(MAX_HISTORY)
 
     private fun schedule(context: Context, entry: TimerEntry) {
         val am = alarmManager(context)
