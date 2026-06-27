@@ -21,6 +21,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -139,10 +140,10 @@ fun WheelTimePicker(
     fun emit() {
         val h12 = hIndex + 1
         val h24 = when {
-            apIndex == 0 && h12 == 12 -> 0     // 12 AM = 0時
-            apIndex == 0 -> h12                // 午前
-            h12 == 12 -> 12                    // 12 PM = 12時
-            else -> h12 + 12                   // 午後
+            apIndex == 0 && h12 == 12 -> 0
+            apIndex == 0 -> h12
+            h12 == 12 -> 12
+            else -> h12 + 12
         }
         onChange(h24, mIndex)
     }
@@ -152,11 +153,20 @@ fun WheelTimePicker(
         horizontalArrangement = Arrangement.Center,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        WheelPicker(hours, hIndex, Modifier.width(64.dp), loop = true) { hIndex = it; emit() }
+        WheelPicker(hours, hIndex, Modifier.width(64.dp), loop = true) { newH ->
+            val prev = hIndex
+            hIndex = newH
+            if ((prev == 10 && newH == 11) || (prev == 11 && newH == 10)) {
+                apIndex = 1 - apIndex
+            }
+            emit()
+        }
         Text(":", fontSize = 26.sp, fontWeight = FontWeight.Bold,
             modifier = Modifier.padding(horizontal = 2.dp))
         WheelPicker(minutes, mIndex, Modifier.width(64.dp), loop = true) { mIndex = it; emit() }
         Spacer(Modifier.width(10.dp))
-        WheelPicker(ampm, apIndex, Modifier.width(64.dp), loop = false) { apIndex = it; emit() }
+        key(apIndex) {
+            WheelPicker(ampm, apIndex, Modifier.width(64.dp), loop = false) { apIndex = it; emit() }
+        }
     }
 }
