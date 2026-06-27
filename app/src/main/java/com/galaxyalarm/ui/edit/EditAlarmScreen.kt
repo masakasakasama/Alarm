@@ -1,5 +1,7 @@
 package com.galaxyalarm.ui.edit
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -9,6 +11,9 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.DropdownMenuItem
@@ -17,6 +22,7 @@ import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -55,6 +61,8 @@ fun EditAlarmScreen(alarmId: Long, groupId: Long = 0L, onDone: () -> Unit, vm: E
     val groups by vm.groups.collectAsStateWithLifecycle()
     val alarm = draft ?: return
     val isAm = alarm.hour < 12
+
+    var optionsExpanded by remember { mutableStateOf(false) }
 
     Column(
         Modifier
@@ -106,108 +114,126 @@ fun EditAlarmScreen(alarmId: Long, groupId: Long = 0L, onDone: () -> Unit, vm: E
             }
         }
 
-        // ── オプション ──
-        Text(
-            "オプション",
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(top = 4.dp)
-        )
-
+        // ── オプション (折りたたみ) ──
         SectionCard(Modifier.fillMaxWidth()) {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-
-                OutlinedTextField(
-                    value = alarm.label,
-                    onValueChange = { value -> vm.update { it.copy(label = value) } },
-                    label = { Text("ラベル") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
-
-                HorizontalDivider()
-
-                Column {
-                    Text("曜日 (${Weekdays.label(alarm.weekdaysMask)})", style = MaterialTheme.typography.titleMedium)
-                    Spacer(Modifier.height(8.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Weekdays.LABELS.forEachIndexed { index, label ->
-                            FilterChip(
-                                selected = Weekdays.has(alarm.weekdaysMask, index),
-                                onClick = { vm.update { it.copy(weekdaysMask = Weekdays.toggle(it.weekdaysMask, index)) } },
-                                label = { Text(label) }
-                            )
-                        }
-                    }
-                    Text("選択なしは一度きり", style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 4.dp))
+            Column {
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .clickable { optionsExpanded = !optionsExpanded }
+                        .padding(vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        "オプション",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Icon(
+                        if (optionsExpanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
 
-                HorizontalDivider()
+                AnimatedVisibility(visible = optionsExpanded) {
+                    Column(verticalArrangement = Arrangement.spacedBy(12.dp),
+                        modifier = Modifier.padding(top = 12.dp)) {
 
-                var groupExpanded by remember { mutableStateOf(false) }
-                val currentGroup = groups.firstOrNull { it.id == alarm.groupId }?.name ?: "選択"
-                Column {
-                    Text("グループ", style = MaterialTheme.typography.titleMedium)
-                    Spacer(Modifier.height(6.dp))
-                    ExposedDropdownMenuBox(expanded = groupExpanded, onExpandedChange = { groupExpanded = it }) {
-                        TextField(
-                            value = currentGroup, onValueChange = {}, readOnly = true,
-                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = groupExpanded) },
-                            modifier = Modifier.menuAnchor().fillMaxWidth()
+                        OutlinedTextField(
+                            value = alarm.label,
+                            onValueChange = { value -> vm.update { it.copy(label = value) } },
+                            label = { Text("ラベル") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth()
                         )
-                        ExposedDropdownMenu(expanded = groupExpanded, onDismissRequest = { groupExpanded = false }) {
-                            groups.forEach { group ->
-                                DropdownMenuItem(text = { Text(group.name) }, onClick = {
-                                    vm.update { it.copy(groupId = group.id) }; groupExpanded = false
-                                })
+
+                        HorizontalDivider()
+
+                        Column {
+                            Text("曜日 (${Weekdays.label(alarm.weekdaysMask)})", style = MaterialTheme.typography.titleMedium)
+                            Spacer(Modifier.height(8.dp))
+                            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Weekdays.LABELS.forEachIndexed { index, label ->
+                                    FilterChip(
+                                        selected = Weekdays.has(alarm.weekdaysMask, index),
+                                        onClick = { vm.update { it.copy(weekdaysMask = Weekdays.toggle(it.weekdaysMask, index)) } },
+                                        label = { Text(label) }
+                                    )
+                                }
                             }
+                            Text("選択なしは一度きり", style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 4.dp))
                         }
-                    }
-                }
 
-                HorizontalDivider()
+                        HorizontalDivider()
 
-                val vibrationRequired = alarm.soundMode != SoundMode.SOUND
-                Column {
-                    ToggleRow("バイブ", alarm.vibrationEnabled || vibrationRequired, enabled = !vibrationRequired) { checked ->
-                        vm.update { it.copy(vibrationEnabled = checked) }
-                    }
-                    if (alarm.vibrationEnabled || vibrationRequired) {
-                        Spacer(Modifier.height(6.dp))
-                        var vibExpanded by remember { mutableStateOf(false) }
-                        ExposedDropdownMenuBox(expanded = vibExpanded, onExpandedChange = { vibExpanded = it }) {
-                            TextField(
-                                value = patternLabel(alarm.vibrationPattern), onValueChange = {}, readOnly = true,
-                                label = { Text("バイブパターン") },
-                                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = vibExpanded) },
-                                modifier = Modifier.menuAnchor().fillMaxWidth()
-                            )
-                            ExposedDropdownMenu(expanded = vibExpanded, onDismissRequest = { vibExpanded = false }) {
-                                VibrationPattern.entries.forEach { pattern ->
-                                    DropdownMenuItem(text = { Text(patternLabel(pattern)) }, onClick = {
-                                        vm.update { it.copy(vibrationPattern = pattern) }; vibExpanded = false
-                                    })
+                        var groupExpanded by remember { mutableStateOf(false) }
+                        val currentGroup = groups.firstOrNull { it.id == alarm.groupId }?.name ?: "選択"
+                        Column {
+                            Text("グループ", style = MaterialTheme.typography.titleMedium)
+                            Spacer(Modifier.height(6.dp))
+                            ExposedDropdownMenuBox(expanded = groupExpanded, onExpandedChange = { groupExpanded = it }) {
+                                TextField(
+                                    value = currentGroup, onValueChange = {}, readOnly = true,
+                                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = groupExpanded) },
+                                    modifier = Modifier.menuAnchor().fillMaxWidth()
+                                )
+                                ExposedDropdownMenu(expanded = groupExpanded, onDismissRequest = { groupExpanded = false }) {
+                                    groups.forEach { group ->
+                                        DropdownMenuItem(text = { Text(group.name) }, onClick = {
+                                            vm.update { it.copy(groupId = group.id) }; groupExpanded = false
+                                        })
+                                    }
                                 }
                             }
                         }
+
+                        HorizontalDivider()
+
+                        val vibrationRequired = alarm.soundMode != SoundMode.SOUND
+                        Column {
+                            ToggleRow("バイブ", alarm.vibrationEnabled || vibrationRequired, enabled = !vibrationRequired) { checked ->
+                                vm.update { it.copy(vibrationEnabled = checked) }
+                            }
+                            if (alarm.vibrationEnabled || vibrationRequired) {
+                                Spacer(Modifier.height(6.dp))
+                                var vibExpanded by remember { mutableStateOf(false) }
+                                ExposedDropdownMenuBox(expanded = vibExpanded, onExpandedChange = { vibExpanded = it }) {
+                                    TextField(
+                                        value = patternLabel(alarm.vibrationPattern), onValueChange = {}, readOnly = true,
+                                        label = { Text("バイブパターン") },
+                                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = vibExpanded) },
+                                        modifier = Modifier.menuAnchor().fillMaxWidth()
+                                    )
+                                    ExposedDropdownMenu(expanded = vibExpanded, onDismissRequest = { vibExpanded = false }) {
+                                        VibrationPattern.entries.forEach { pattern ->
+                                            DropdownMenuItem(text = { Text(patternLabel(pattern)) }, onClick = {
+                                                vm.update { it.copy(vibrationPattern = pattern) }; vibExpanded = false
+                                            })
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        HorizontalDivider()
+
+                        Column {
+                            ToggleRow("スヌーズ", alarm.snoozeEnabled) { vm.update { it.copy(snoozeEnabled = it.snoozeEnabled.not()) } }
+                            if (alarm.snoozeEnabled) {
+                                Spacer(Modifier.height(6.dp))
+                                Stepper("間隔 (分)", alarm.snoozeMinutes, 1, 60) { v -> vm.update { it.copy(snoozeMinutes = v) } }
+                                Stepper("最大回数", alarm.maxSnoozeCount, 0, 20) { v -> vm.update { it.copy(maxSnoozeCount = v) } }
+                            }
+                        }
+
+                        HorizontalDivider()
+
+                        Stepper("自動停止 (分)", alarm.autoStopMinutes, 1, 60) { v -> vm.update { it.copy(autoStopMinutes = v) } }
                     }
                 }
-
-                HorizontalDivider()
-
-                Column {
-                    ToggleRow("スヌーズ", alarm.snoozeEnabled) { vm.update { it.copy(snoozeEnabled = it.snoozeEnabled.not()) } }
-                    if (alarm.snoozeEnabled) {
-                        Spacer(Modifier.height(6.dp))
-                        Stepper("間隔 (分)", alarm.snoozeMinutes, 1, 60) { v -> vm.update { it.copy(snoozeMinutes = v) } }
-                        Stepper("最大回数", alarm.maxSnoozeCount, 0, 20) { v -> vm.update { it.copy(maxSnoozeCount = v) } }
-                    }
-                }
-
-                HorizontalDivider()
-
-                Stepper("自動停止 (分)", alarm.autoStopMinutes, 1, 60) { v -> vm.update { it.copy(autoStopMinutes = v) } }
             }
         }
 
