@@ -21,6 +21,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -105,10 +106,10 @@ fun EditAlarmScreen(alarmId: Long, groupId: Long = 0L, onDone: () -> Unit, vm: E
         // ── 音モード ──
         SectionCard(Modifier.fillMaxWidth()) {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                SoundChip("音あり", alarm.soundMode == SoundMode.SOUND, Modifier.weight(1f)) {
+                SoundChip("音あり", alarm.soundMode == SoundMode.SOUND, AmColor, Modifier.weight(1f)) {
                     vm.update { it.copy(soundMode = SoundMode.SOUND, vibrationEnabled = true) }
                 }
-                SoundChip("音なし", alarm.soundMode != SoundMode.SOUND, Modifier.weight(1f)) {
+                SoundChip("音なし", alarm.soundMode != SoundMode.SOUND, PmColor, Modifier.weight(1f)) {
                     vm.update { it.copy(soundMode = SoundMode.VIBRATE_ONLY, vibrationEnabled = true) }
                 }
             }
@@ -251,8 +252,17 @@ fun EditAlarmScreen(alarmId: Long, groupId: Long = 0L, onDone: () -> Unit, vm: E
 }
 
 @Composable
-private fun SoundChip(label: String, selected: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {
-    FilterChip(selected = selected, onClick = onClick, label = { Text(label, Modifier.fillMaxWidth(), textAlign = androidx.compose.ui.text.style.TextAlign.Center) }, modifier = modifier)
+private fun SoundChip(label: String, selected: Boolean, accentColor: Color, modifier: Modifier = Modifier, onClick: () -> Unit) {
+    FilterChip(
+        selected = selected,
+        onClick = onClick,
+        label = { Text(label, Modifier.fillMaxWidth(), textAlign = androidx.compose.ui.text.style.TextAlign.Center) },
+        modifier = modifier,
+        colors = FilterChipDefaults.filterChipColors(
+            selectedContainerColor = accentColor.copy(alpha = 0.25f),
+            selectedLabelColor = accentColor,
+        )
+    )
 }
 
 @Composable
