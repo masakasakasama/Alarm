@@ -15,7 +15,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
-import java.text.SimpleDateFormat
+import java.util.Calendar
 import java.util.Locale
 
 class NextAlarmWidgetProvider : AppWidgetProvider() {
@@ -56,7 +56,7 @@ class NextAlarmWidgetProvider : AppWidgetProvider() {
         private fun buildSmallView(context: Context, next: WidgetAlarm?): RemoteViews {
             val views = RemoteViews(context.packageName, R.layout.widget_next_alarm_small)
             views.setTextViewText(R.id.widget_small_time, next?.clock ?: "--:--")
-            views.setTextViewText(R.id.widget_small_label, next?.label ?: "予定なし")
+            views.setTextViewText(R.id.widget_small_label, next?.let { remaining(it.time) } ?: "予定なし")
             views.setOnClickPendingIntent(R.id.widget_small_root, openAlarmIntent(context, next?.alarmId))
             return views
         }
@@ -68,11 +68,12 @@ class NextAlarmWidgetProvider : AppWidgetProvider() {
                 .filter { alarm -> alarm.enabled && groups[alarm.groupId]?.enabled == true }
                 .map { alarm ->
                     val group = groups[alarm.groupId]
+                    val groupName = group?.name ?: "グループなし"
+                    val alarmLabel = alarm.label.trim()
                     WidgetAlarm(
                         alarmId = alarm.id,
                         time = NextTriggerCalculator.nextTrigger(alarm.hour, alarm.minute, alarm.weekdaysMask),
-                        label = alarm.label.ifBlank { group?.name ?: "アラーム" },
-                        groupName = group?.name ?: "グループなし",
+                        displayName = displayName(groupName, alarmLabel),
                         clock = formatClock(alarm.hour, alarm.minute)
                     )
                 }
@@ -86,8 +87,11 @@ class NextAlarmWidgetProvider : AppWidgetProvider() {
                 views.setTextViewText(R.id.widget_time, "予定なし")
                 views.setTextViewText(R.id.widget_label, "アラームを追加してください")
             } else {
-                views.setTextViewText(R.id.widget_time, formatDateTime(next.time))
-                views.setTextViewText(R.id.widget_label, "${next.clock} ・ ${next.groupName} ・ ${next.label}")
+                views.setTextViewText(R.id.widget_time, next.clock)
+                views.setTextViewText(
+                    R.id.widget_label,
+                    "${dayLabel(next.time)} ・ ${remaining(next.time)} ・ ${next.displayName}"
+                )
             }
             views.setOnClickPendingIntent(R.id.widget_root, openAlarmIntent(context, next?.alarmId))
             return views
@@ -106,13 +110,47 @@ class NextAlarmWidgetProvider : AppWidgetProvider() {
             )
         }
 
-        private fun formatDateTime(millis: Long): String =
-            SimpleDateFormat("M/d h:mm a", Locale.JAPAN).format(millis)
-
         private fun formatClock(hour: Int, minute: Int): String {
             val ampm = if (hour < 12) "AM" else "PM"
             val h12 = (hour % 12).let { if (it == 0) 12 else it }
             return String.format(Locale.JAPAN, "%d:%02d %s", h12, minute, ampm)
+        }
+
+        private fun displayName(groupName: String, alarmLabel: String): String =
+            when {
+                alarmLabel.isBlank() && groupName == "グループなし" -> "アラーム"
+                alarmLabel.isBlank() -> groupName
+                groupName == "グループなし" -> alarmLabel
+                alarmLabel == groupName -> groupName
+                else -> "$groupName / $alarmLabel"
+            }
+
+        private fun dayLabel(millis: Long, now: Long = System.currentTimeMillis()): String {
+            val target = Calendar.getInstance().apply { timeInMillis = millis }
+            val today = Calendar.getInstance().apply { timeInMillis = now }
+            val diff = dayOfEpoch(target) - dayOfEpoch(today)
+            return when (diff) {
+                0L -> "今日"
+                1L -> "明日"
+                2L -> "明後日"
+                else -> String.format(Locale.JAPAN, "%d/%d", target.get(Calendar.MONTH) + 1, target.get(Calendar.DAY_OF_MONTH))
+            }
+        }
+
+        private fun remaining(millis: Long, now: Long = System.currentTimeMillis()): String {
+            val minutes = ((millis - now) / 60_000L).coerceAtLeast(0)
+            val hours = minutes / 60
+            val mins = minutes % 60
+            return if (hours > 0) "あと${hours}時間${mins}分" else "あと${mins}分"
+        }
+
+        private fun dayOfEpoch(c: Calendar): Long {
+            val z = c.clone() as Calendar
+            z.set(Calendar.HOUR_OF_DAY, 0)
+            z.set(Calendar.MINUTE, 0)
+            z.set(Calendar.SECOND, 0)
+            z.set(Calendar.MILLISECOND, 0)
+            return z.timeInMillis / 86_400_000L
         }
     }
 }
@@ -120,8 +158,7 @@ class NextAlarmWidgetProvider : AppWidgetProvider() {
 private data class WidgetAlarm(
     val alarmId: Long,
     val time: Long,
-    val label: String,
-    val groupName: String,
+    val displayName: String,
     val clock: String,
 )
 
