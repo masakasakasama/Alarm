@@ -57,6 +57,7 @@ fun SettingsScreen(vm: MainViewModel, onOpenLog: () -> Unit, onOpenReliability: 
     var gistId by remember { mutableStateOf(savedBackupSettings.gistId) }
     var backupText by remember { mutableStateOf("未実行") }
     var fadeInSeconds by remember { mutableIntStateOf(globalPrefs.fadeInSeconds) }
+    var fadeInStartVolume by remember { mutableIntStateOf(globalPrefs.fadeInStartVolume) }
 
     Column(
         Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(16.dp),
@@ -86,6 +87,16 @@ fun SettingsScreen(vm: MainViewModel, onOpenLog: () -> Unit, onOpenReliability: 
                         Text("${fadeInSeconds}秒", modifier = Modifier.padding(horizontal = 12.dp), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                         OutlinedButton(onClick = {
                             if (fadeInSeconds < 120) { fadeInSeconds += 5; globalPrefs.fadeInSeconds = fadeInSeconds }
+                        }) { Text("+") }
+                    }
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Text("開始音量", modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
+                        OutlinedButton(onClick = {
+                            if (fadeInStartVolume > 0) { fadeInStartVolume -= 5; globalPrefs.fadeInStartVolume = fadeInStartVolume }
+                        }) { Text("-") }
+                        Text("${fadeInStartVolume}%", modifier = Modifier.padding(horizontal = 12.dp), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                        OutlinedButton(onClick = {
+                            if (fadeInStartVolume < 50) { fadeInStartVolume += 5; globalPrefs.fadeInStartVolume = fadeInStartVolume }
                         }) { Text("+") }
                     }
                 }

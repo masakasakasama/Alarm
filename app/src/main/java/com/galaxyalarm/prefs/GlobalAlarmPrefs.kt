@@ -8,4 +8,8 @@ class GlobalAlarmPrefs(context: Context) {
     var fadeInSeconds: Int
         get() = sp.getInt("fadeInSeconds", 0)
         set(v) = sp.edit().putInt("fadeInSeconds", v).apply()
+
+    var fadeInStartVolume: Int
+        get() = sp.getInt("fadeInStartVolume", 5)
+        set(v) = sp.edit().putInt("fadeInStartVolume", v).apply()
 }

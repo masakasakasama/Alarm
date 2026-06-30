@@ -40,10 +40,11 @@ class AlarmPlayer(private val context: Context) {
         vibrationEnabled: Boolean,
         pattern: VibrationPattern,
         fadeInSeconds: Int = 0,
+        fadeInStartVolume: Int = 5,
     ) {
         when (soundMode) {
             SoundMode.SOUND -> {
-                playSound(ringtoneUri, fadeInSeconds)
+                playSound(ringtoneUri, fadeInSeconds, fadeInStartVolume)
                 if (vibrationEnabled) vibrate(pattern)
             }
             SoundMode.VIBRATE_ONLY,
@@ -53,12 +54,12 @@ class AlarmPlayer(private val context: Context) {
         }
     }
 
-    private fun playSound(ringtoneUri: String?, fadeInSeconds: Int) {
+    private fun playSound(ringtoneUri: String?, fadeInSeconds: Int, fadeInStartVolume: Int) {
         try {
             val uri: Uri = ringtoneUri?.let { Uri.parse(it) }
                 ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
                 ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE)
-            val startVol = if (fadeInSeconds > 0) 0.05f else 1.0f
+            val startVol = if (fadeInSeconds > 0) (fadeInStartVolume / 100f).coerceIn(0f, 1f) else 1.0f
             player = MediaPlayer().apply {
                 setDataSource(context, uri)
                 setAudioAttributes(
@@ -71,7 +72,7 @@ class AlarmPlayer(private val context: Context) {
                 setOnPreparedListener { mp ->
                     mp.setVolume(startVol, startVol)
                     mp.start()
-                    if (fadeInSeconds > 0) startFade(fadeInSeconds)
+                    if (fadeInSeconds > 0) startFade(fadeInSeconds, startVol)
                 }
                 prepareAsync()
             }
@@ -86,12 +87,12 @@ class AlarmPlayer(private val context: Context) {
         }
     }
 
-    private fun startFade(fadeInSeconds: Int) {
+    private fun startFade(fadeInSeconds: Int, startVol: Float) {
         fadeJob?.cancel()
         fadeJob = scope.launch {
             val steps = fadeInSeconds.coerceAtLeast(1)
-            val increment = (1.0f - 0.05f) / steps
-            var vol = 0.05f
+            val increment = (1.0f - startVol) / steps
+            var vol = startVol
             repeat(steps) {
                 delay(1000L)
                 vol = (vol + increment).coerceAtMost(1.0f)
