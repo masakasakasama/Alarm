@@ -100,11 +100,10 @@ class NextAlarmWidgetProvider : AppWidgetProvider() {
         private fun openAlarmIntent(context: Context, alarmId: Long?): PendingIntent {
             val intent = Intent(context, MainActivity::class.java).apply {
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
-                alarmId?.let { putExtra(MainActivity.EXTRA_OPEN_ALARM_ID, it) }
             }
             return PendingIntent.getActivity(
                 context,
-                1001 + (alarmId?.toInt() ?: 0),
+                1001,
                 intent,
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             )
