@@ -20,11 +20,11 @@ import com.galaxyalarm.ring.ActiveAlarm
 import com.galaxyalarm.ring.ActiveAlarms
 import com.galaxyalarm.ring.AlarmPlayer
 import com.galaxyalarm.scheduler.AlarmIntents
-import com.galaxyalarm.scheduler.NextTriggerCalculator
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -41,6 +41,7 @@ class AlarmService : Service() {
     private val notifier by lazy { NotificationHelper(this) }
     private val handler = Handler(Looper.getMainLooper())
     private val autoStopRunnables = mutableMapOf<Long, Runnable>()
+    private val processingOccurrences = mutableSetOf<Long>()
     private var wakeLock: PowerManager.WakeLock? = null
 
     private val container get() = (application as AlarmApplication).container
@@ -48,10 +49,16 @@ class AlarmService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        val occurrenceId = intent?.getLongExtra(AlarmIntents.EXTRA_OCCURRENCE_ID, -1) ?: -1
+        val isBackupFire = intent?.getBooleanExtra(AlarmIntents.EXTRA_BACKUP_FIRE, false) == true
+        if (intent?.action == AlarmIntents.ACTION_FIRE && isBackupFire && ActiveAlarms.contains(occurrenceId)) {
+            scope.launch { container.scheduler.cancelBackup(occurrenceId) }
+            return START_NOT_STICKY
+        }
         // startForegroundService の 5 秒制約を満たすため、どのアクションでも即時に前面化。
         startForeground(NotificationHelper.FOREGROUND_ID, notifier.buildLoadingNotification())
         when (intent?.action) {
-            AlarmIntents.ACTION_FIRE -> handleFire(intent.getLongExtra(AlarmIntents.EXTRA_OCCURRENCE_ID, -1))
+            AlarmIntents.ACTION_FIRE -> handleFire(occurrenceId, isBackupFire)
             AlarmIntents.ACTION_STOP -> handleStop(intent.getLongExtra(AlarmIntents.EXTRA_OCCURRENCE_ID, -1))
             AlarmIntents.ACTION_SNOOZE -> handleSnooze(intent.getLongExtra(AlarmIntents.EXTRA_OCCURRENCE_ID, -1))
             AlarmIntents.ACTION_STOP_ALL -> handleStopAll()
@@ -62,7 +69,7 @@ class AlarmService : Service() {
             AlarmIntents.ACTION_TEST_FIRE -> handleTestFire()
             else -> {}
         }
-        return START_STICKY
+        return START_NOT_STICKY
     }
 
     private fun acquireWakeLock() {
@@ -73,58 +80,81 @@ class AlarmService : Service() {
         ).apply { acquire(10 * 60 * 1000L) }
     }
 
-    private fun handleFire(occurrenceId: Long) {
+    private fun handleFire(occurrenceId: Long, isBackupFire: Boolean) {
         if (occurrenceId < 0) return
+        synchronized(processingOccurrences) {
+            if (!processingOccurrences.add(occurrenceId)) return
+        }
         acquireWakeLock()
         scope.launch {
-            val occ = container.db.occurrenceDao().getById(occurrenceId) ?: return@launch
-            if (occ.status != OccurrenceStatus.SCHEDULED) return@launch
-            val alarm = container.db.alarmDao().getById(occ.alarmId) ?: return@launch
-            val group = container.db.groupDao().getById(alarm.groupId) ?: return@launch
-            if (!alarm.enabled || !group.enabled) return@launch
-            val h12 = (alarm.hour % 12).let { if (it == 0) 12 else it }
-            val ampm = if (alarm.hour < 12) "AM" else "PM"
-            val timeText = String.format(Locale.JAPAN, "%d:%02d %s", h12, alarm.minute, ampm)
+            var ringingStarted = false
+            try {
+                val occ = container.db.occurrenceDao().getById(occurrenceId) ?: return@launch
+                val recoveringInterruptedFire =
+                    isBackupFire && occ.status == OccurrenceStatus.FIRED && !ActiveAlarms.contains(occ.id)
+                if (occ.status != OccurrenceStatus.SCHEDULED && !recoveringInterruptedFire) return@launch
+                val alarm = container.db.alarmDao().getById(occ.alarmId) ?: return@launch
+                val group = container.db.groupDao().getById(alarm.groupId) ?: return@launch
+                val isOneShotRecovery = recoveringInterruptedFire &&
+                    !com.galaxyalarm.data.model.Weekdays.isRepeating(alarm.weekdaysMask)
+                if ((!alarm.enabled && !isOneShotRecovery) || !group.enabled) return@launch
+                val h12 = (alarm.hour % 12).let { if (it == 0) 12 else it }
+                val ampm = if (alarm.hour < 12) "AM" else "PM"
+                val timeText = String.format(Locale.JAPAN, "%d:%02d %s", h12, alarm.minute, ampm)
 
-            // ログ: 発火と遅延。
-            val now = System.currentTimeMillis()
-            container.repository.log(
-                AlarmEventLog(
-                    alarmId = alarm.id, groupId = alarm.groupId,
-                    scheduledAtMillis = occ.triggerAtMillis, firedAtMillis = now,
-                    delayMs = now - occ.triggerAtMillis,
-                    result = EventResult.FIRED,
-                    message = "発火 ${alarm.label}"
-                )
-            )
-            container.db.occurrenceDao().setStatus(occ.id, OccurrenceStatus.FIRED, now)
-
-            // 繰り返しアラームは次回をすぐ再予約(取りこぼし防止)。
-            if (com.galaxyalarm.data.model.Weekdays.isRepeating(alarm.weekdaysMask)) {
-                val next = NextTriggerCalculator.nextTrigger(alarm.hour, alarm.minute, alarm.weekdaysMask)
-                container.scheduler.scheduleOccurrence(alarm.id, alarm.groupId, next, 0)
-            } else {
-                // 一度きりは自動的に無効化。
-                container.db.alarmDao().setEnabled(alarm.id, false, now)
-            }
-
-            handler.post {
-                ActiveAlarms.push(ActiveAlarm(occ.id, alarm.id, alarm.label, timeText))
-                startForeground(
-                    NotificationHelper.FOREGROUND_ID,
-                    notifier.buildAlarmNotification(occ.id, alarm.id, alarm.label, timeText)
-                )
-                // スタック最上段の音/バイブを再生。
-                player.stop()
-                player.start(alarm.soundMode, alarm.ringtoneUri, alarm.vibrationEnabled, alarm.vibrationPattern, globalPrefs.fadeInSeconds, globalPrefs.fadeInStartVolume)
-                // 画面OFF/ロック中のみ全画面を直接起動。使用中は全画面で乗っ取らず、
-                // ヘッドアップ通知(停止/スヌーズボタン付き)のポップアップで操作してもらう。
-                if (shouldLaunchFullScreen()) {
-                    launchRingActivity(occ.id, alarm.id)
+                // Commit FIRED only after the notification and output have started. If the
+                // process dies before this completes, the delayed backup can retry safely.
+                withContext(Dispatchers.Main.immediate) {
+                    ActiveAlarms.push(ActiveAlarm(occ.id, alarm.id, alarm.label, timeText))
+                    startForeground(
+                        NotificationHelper.FOREGROUND_ID,
+                        notifier.buildAlarmNotification(occ.id, alarm.id, alarm.label, timeText)
+                    )
+                    player.stop()
+                    player.start(
+                        alarm.soundMode,
+                        alarm.ringtoneUri,
+                        alarm.vibrationEnabled,
+                        alarm.vibrationPattern,
+                        globalPrefs.fadeInSeconds,
+                        globalPrefs.fadeInStartVolume
+                    )
+                    if (shouldLaunchFullScreen()) launchRingActivity(occ.id, alarm.id)
+                    scheduleAutoStop(occ.id, alarm.autoStopMinutes)
+                    ringingStarted = true
                 }
-                scheduleAutoStop(occ.id, alarm.autoStopMinutes)
+
+                val now = System.currentTimeMillis()
+                container.db.occurrenceDao().setStatus(occ.id, OccurrenceStatus.FIRED, now)
+                if (com.galaxyalarm.data.model.Weekdays.isRepeating(alarm.weekdaysMask)) {
+                    container.scheduler.replaceAlarm(alarm)
+                } else {
+                    container.db.alarmDao().setEnabled(alarm.id, false, now)
+                    container.scheduler.cancelAlarm(alarm.id)
+                }
+                if (isBackupFire) container.scheduler.cancelBackup(occ.id)
+                runCatching {
+                    container.repository.log(
+                        AlarmEventLog(
+                            alarmId = alarm.id, groupId = alarm.groupId,
+                            scheduledAtMillis = occ.triggerAtMillis, firedAtMillis = now,
+                            delayMs = now - occ.triggerAtMillis,
+                            result = EventResult.FIRED,
+                            message = "発火 ${alarm.label}"
+                        )
+                    )
+                }.onFailure { Log.e(TAG, "failed to write fire log", it) }
+            } catch (error: Exception) {
+                Log.e(TAG, "alarm fire failed for occurrence $occurrenceId", error)
+            } finally {
+                synchronized(processingOccurrences) { processingOccurrences.remove(occurrenceId) }
+                if (!ringingStarted) handler.post { finishIfIdle() }
             }
         }
+    }
+
+    private fun finishIfIdle() {
+        if (ActiveAlarms.top() == null) finishService()
     }
 
     /** タイマー発火: DBアラームに依存せず鳴らす。音なし設定ならバイブのみで鳴らす。 */
@@ -213,36 +243,49 @@ class AlarmService : Service() {
 
     private fun handleStop(occurrenceId: Long) {
         scope.launch {
-            val occ = container.db.occurrenceDao().getById(occurrenceId)
-            container.repository.log(
-                AlarmEventLog(
-                    alarmId = occ?.alarmId, groupId = occ?.groupId,
-                    scheduledAtMillis = occ?.triggerAtMillis, firedAtMillis = null, delayMs = null,
-                    result = EventResult.DISMISSED, message = "停止"
+            try {
+                container.scheduler.cancelBackup(occurrenceId)
+                val occ = container.db.occurrenceDao().getById(occurrenceId)
+                container.repository.log(
+                    AlarmEventLog(
+                        alarmId = occ?.alarmId, groupId = occ?.groupId,
+                        scheduledAtMillis = occ?.triggerAtMillis, firedAtMillis = null, delayMs = null,
+                        result = EventResult.DISMISSED, message = "停止"
+                    )
                 )
-            )
+            } finally {
+                withContext(Dispatchers.Main.immediate) { stopOne(occurrenceId) }
+            }
         }
-        stopOne(occurrenceId)
     }
 
     private fun handleSnooze(occurrenceId: Long) {
         scope.launch {
-            val occ = container.db.occurrenceDao().getById(occurrenceId) ?: return@launch
-            val alarm = container.db.alarmDao().getById(occ.alarmId) ?: return@launch
-            if (alarm.snoozeEnabled && occ.snoozeCount < alarm.maxSnoozeCount) {
-                val next = System.currentTimeMillis() + alarm.snoozeMinutes * 60_000L
-                container.scheduler.scheduleOccurrence(alarm.id, alarm.groupId, next, occ.snoozeCount + 1)
-                container.repository.log(
-                    AlarmEventLog(
-                        alarmId = alarm.id, groupId = alarm.groupId,
-                        scheduledAtMillis = next, firedAtMillis = null, delayMs = null,
-                        result = EventResult.SNOOZED,
-                        message = "スヌーズ${occ.snoozeCount + 1}回目 (+${alarm.snoozeMinutes}分)"
+            try {
+                container.scheduler.cancelBackup(occurrenceId)
+                val occ = container.db.occurrenceDao().getById(occurrenceId) ?: return@launch
+                val alarm = container.db.alarmDao().getById(occ.alarmId) ?: return@launch
+                if (alarm.snoozeEnabled && occ.snoozeCount < alarm.maxSnoozeCount) {
+                    val next = System.currentTimeMillis() + alarm.snoozeMinutes * 60_000L
+                    container.scheduler.replaceSnooze(
+                        alarm.id,
+                        alarm.groupId,
+                        next,
+                        occ.snoozeCount + 1
                     )
-                )
+                    container.repository.log(
+                        AlarmEventLog(
+                            alarmId = alarm.id, groupId = alarm.groupId,
+                            scheduledAtMillis = next, firedAtMillis = null, delayMs = null,
+                            result = EventResult.SNOOZED,
+                            message = "スヌーズ${occ.snoozeCount + 1}回目 (+${alarm.snoozeMinutes}分)"
+                        )
+                    )
+                }
+            } finally {
+                withContext(Dispatchers.Main.immediate) { stopOne(occurrenceId) }
             }
         }
-        stopOne(occurrenceId)
     }
 
     /** 1件だけ止める。他は鳴動継続。空になったらサービス終了。 */
@@ -273,11 +316,15 @@ class AlarmService : Service() {
     }
 
     private fun handleStopAll() {
-        handler.post {
-            autoStopRunnables.values.forEach { handler.removeCallbacks(it) }
-            autoStopRunnables.clear()
-            ActiveAlarms.clear()
-            finishService()
+        val occurrenceIds = ActiveAlarms.stack.value.map { it.occurrenceId }
+        scope.launch {
+            occurrenceIds.forEach { container.scheduler.cancelBackup(it) }
+            withContext(Dispatchers.Main.immediate) {
+                autoStopRunnables.values.forEach { handler.removeCallbacks(it) }
+                autoStopRunnables.clear()
+                ActiveAlarms.clear()
+                finishService()
+            }
         }
     }
 
@@ -296,6 +343,9 @@ class AlarmService : Service() {
 
     override fun onDestroy() {
         super.onDestroy()
+        autoStopRunnables.values.forEach { handler.removeCallbacks(it) }
+        autoStopRunnables.clear()
+        ActiveAlarms.clear()
         player.stop()
         wakeLock?.let { if (it.isHeld) it.release() }
     }

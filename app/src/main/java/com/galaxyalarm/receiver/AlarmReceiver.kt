@@ -25,8 +25,13 @@ class AlarmReceiver : BroadcastReceiver() {
             return
         }
         val serviceIntent = Intent(context, AlarmService::class.java).apply {
-            this.action = action
+            this.action = if (action == AlarmIntents.ACTION_FIRE_BACKUP) {
+                AlarmIntents.ACTION_FIRE
+            } else {
+                action
+            }
             putExtras(intent)
+            putExtra(AlarmIntents.EXTRA_BACKUP_FIRE, action == AlarmIntents.ACTION_FIRE_BACKUP)
         }
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {

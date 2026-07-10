@@ -31,5 +31,7 @@ object ActiveAlarms {
     fun clear() { _stack.value = emptyList() }
 
     fun top(): ActiveAlarm? = _stack.value.lastOrNull()
+    fun contains(occurrenceId: Long): Boolean =
+        _stack.value.any { it.occurrenceId == occurrenceId }
     fun isEmpty(): Boolean = _stack.value.isEmpty()
 }

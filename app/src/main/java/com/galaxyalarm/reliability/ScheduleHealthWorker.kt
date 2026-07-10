@@ -22,6 +22,11 @@ class ScheduleHealthWorker(
         val app = applicationContext as AlarmApplication
         val reason = inputData.getString(KEY_REASON) ?: "periodic-health"
         return try {
+            // Reassert AlarmManager state periodically. Android does not expose a complete
+            // API for enumerating exact alarms, so a DB-only check cannot detect every loss.
+            if (app.container.permissions.canScheduleExactAlarms()) {
+                app.container.repository.rescheduleAll("health:$reason")
+            }
             var report = app.container.reliabilityChecker.runCheck()
             if (report.hasRepairableScheduleProblem && app.container.permissions.canScheduleExactAlarms()) {
                 report = app.container.reliabilityChecker.repair(reason)

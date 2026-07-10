@@ -171,11 +171,12 @@ class AlarmRepository(
             alarmDao.update(normalized.copy(updatedAt = System.currentTimeMillis()))
             normalized.id
         }
-        scheduler.cancelAlarm(normalized.id.takeIf { it != 0L } ?: id)
         val saved = alarmDao.getById(id)!!
         if (saved.enabled) {
             enableGroupForAlarm(saved.groupId)
-            scheduler.scheduleAlarm(saved)
+            scheduler.replaceAlarm(saved)
+        } else {
+            scheduler.cancelAlarm(saved.id)
         }
         return id
     }
@@ -190,7 +191,7 @@ class AlarmRepository(
         if (enabled) {
             val alarm = alarmDao.getById(alarmId) ?: return
             enableGroupForAlarm(alarm.groupId)
-            scheduler.scheduleAlarm(alarm)
+            scheduler.replaceAlarm(alarm)
         } else {
             scheduler.cancelAlarm(alarmId)
         }
