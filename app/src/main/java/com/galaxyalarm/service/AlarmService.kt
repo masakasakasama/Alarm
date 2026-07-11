@@ -20,6 +20,7 @@ import com.galaxyalarm.ring.ActiveAlarm
 import com.galaxyalarm.ring.ActiveAlarms
 import com.galaxyalarm.ring.AlarmPlayer
 import com.galaxyalarm.scheduler.AlarmIntents
+import com.galaxyalarm.widget.NextAlarmWidgetProvider
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -97,7 +98,8 @@ class AlarmService : Service() {
                 val group = container.db.groupDao().getById(alarm.groupId) ?: return@launch
                 val isOneShotRecovery = recoveringInterruptedFire &&
                     !com.galaxyalarm.data.model.Weekdays.isRepeating(alarm.weekdaysMask)
-                if ((!alarm.enabled && !isOneShotRecovery) || !group.enabled) return@launch
+                val isScheduledSnooze = occ.snoozeCount > 0
+                if ((!alarm.enabled && !isOneShotRecovery && !isScheduledSnooze) || !group.enabled) return@launch
                 val h12 = (alarm.hour % 12).let { if (it == 0) 12 else it }
                 val ampm = if (alarm.hour < 12) "AM" else "PM"
                 val timeText = String.format(Locale.JAPAN, "%d:%02d %s", h12, alarm.minute, ampm)
@@ -133,6 +135,7 @@ class AlarmService : Service() {
                     container.scheduler.cancelAlarm(alarm.id)
                 }
                 if (isBackupFire) container.scheduler.cancelBackup(occ.id)
+                NextAlarmWidgetProvider.refresh(this@AlarmService)
                 runCatching {
                     container.repository.log(
                         AlarmEventLog(
@@ -273,6 +276,7 @@ class AlarmService : Service() {
                         next,
                         occ.snoozeCount + 1
                     )
+                    NextAlarmWidgetProvider.refresh(this@AlarmService)
                     container.repository.log(
                         AlarmEventLog(
                             alarmId = alarm.id, groupId = alarm.groupId,

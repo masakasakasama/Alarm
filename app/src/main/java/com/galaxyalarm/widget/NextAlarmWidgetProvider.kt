@@ -1,16 +1,19 @@
 package com.galaxyalarm.widget
 
+import android.app.AlarmManager
 import android.app.PendingIntent
 import android.appwidget.AppWidgetManager
 import android.appwidget.AppWidgetProvider
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.os.Build
+import android.os.SystemClock
+import android.util.Log
 import android.widget.RemoteViews
 import com.galaxyalarm.MainActivity
 import com.galaxyalarm.R
 import com.galaxyalarm.data.db.AppDatabase
-import com.galaxyalarm.scheduler.NextTriggerCalculator
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -20,64 +23,86 @@ import java.util.Locale
 
 class NextAlarmWidgetProvider : AppWidgetProvider() {
     override fun onUpdate(context: Context, appWidgetManager: AppWidgetManager, appWidgetIds: IntArray) {
-        updateAll(context, appWidgetManager, appWidgetIds)
+        refresh(context)
+    }
+
+    override fun onReceive(context: Context, intent: Intent) {
+        if (intent.action == ACTION_REFRESH_AT_BOUNDARY) {
+            val pendingResult = goAsync()
+            refresh(context) { pendingResult.finish() }
+            return
+        }
+        super.onReceive(context, intent)
     }
 
     companion object {
+        private val widgetScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
         /** 通常+1x1の両ウィジェットをまとめて更新する。 */
-        fun refresh(context: Context) {
-            val manager = AppWidgetManager.getInstance(context)
-            val ids = manager.getAppWidgetIds(ComponentName(context, NextAlarmWidgetProvider::class.java))
-            updateAll(context, manager, ids)
-            val smallIds = manager.getAppWidgetIds(ComponentName(context, NextAlarmSmallWidgetProvider::class.java))
-            updateAllSmall(context, manager, smallIds)
-        }
-
-        private fun updateAll(context: Context, manager: AppWidgetManager, ids: IntArray) {
-            if (ids.isEmpty()) return
-            CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
-                val next = loadNextAlarm(context.applicationContext)
-                ids.forEach { id ->
-                    manager.updateAppWidget(id, buildView(context, next))
-                }
+        fun refresh(context: Context, onComplete: (() -> Unit)? = null) {
+            val appContext = context.applicationContext
+            val manager = AppWidgetManager.getInstance(context) ?: run {
+                onComplete?.invoke()
+                return
             }
-        }
+            val ids = manager.getAppWidgetIds(ComponentName(context, NextAlarmWidgetProvider::class.java))
+            val smallIds = manager.getAppWidgetIds(ComponentName(context, NextAlarmSmallWidgetProvider::class.java))
+            if (ids.isEmpty() && smallIds.isEmpty()) {
+                cancelBoundaryRefresh(appContext)
+                onComplete?.invoke()
+                return
+            }
 
-        internal fun updateAllSmall(context: Context, manager: AppWidgetManager, ids: IntArray) {
-            if (ids.isEmpty()) return
-            CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
-                val next = loadNextAlarm(context.applicationContext)
-                ids.forEach { id ->
-                    manager.updateAppWidget(id, buildSmallView(context, next))
+            widgetScope.launch {
+                try {
+                    val next = loadNextAlarm(appContext)
+                    ids.forEach { id ->
+                        manager.updateAppWidget(id, buildView(appContext, next))
+                    }
+                    smallIds.forEach { id ->
+                        manager.updateAppWidget(id, buildSmallView(appContext, next))
+                    }
+                    scheduleBoundaryRefresh(appContext, next?.time)
+                } catch (error: Exception) {
+                    Log.e(TAG, "Failed to refresh next alarm widget", error)
+                } finally {
+                    onComplete?.invoke()
                 }
             }
         }
 
         private fun buildSmallView(context: Context, next: WidgetAlarm?): RemoteViews {
-            val views = RemoteViews(context.packageName, R.layout.widget_next_alarm_small)
+            val views = RemoteViews(context.packageName, R.layout.widget_next_alarm_small_v2)
             views.setTextViewText(R.id.widget_small_time, next?.clock ?: "--:--")
-            views.setTextViewText(R.id.widget_small_label, next?.let { remaining(it.time) } ?: "予定なし")
+            if (next == null) {
+                views.setChronometerCountDown(R.id.widget_small_label, false)
+                views.setChronometer(R.id.widget_small_label, SystemClock.elapsedRealtime(), null, false)
+                views.setTextViewText(R.id.widget_small_label, "予定なし")
+            } else {
+                val countdownBase = SystemClock.elapsedRealtime() +
+                    (next.time - System.currentTimeMillis()).coerceAtLeast(0L)
+                views.setChronometer(R.id.widget_small_label, countdownBase, "あと%s", true)
+                views.setChronometerCountDown(R.id.widget_small_label, true)
+            }
             views.setOnClickPendingIntent(R.id.widget_small_root, openAlarmIntent(context, next?.alarmId))
             return views
         }
 
         private suspend fun loadNextAlarm(context: Context): WidgetAlarm? {
             val db = AppDatabase.get(context)
-            val groups = db.groupDao().getAll().associateBy { it.id }
-            return db.alarmDao().getAll()
-                .filter { alarm -> alarm.enabled && groups[alarm.groupId]?.enabled == true }
-                .map { alarm ->
-                    val group = groups[alarm.groupId]
-                    val groupName = group?.name ?: "グループなし"
-                    val alarmLabel = alarm.label.trim()
-                    WidgetAlarm(
-                        alarmId = alarm.id,
-                        time = NextTriggerCalculator.nextTrigger(alarm.hour, alarm.minute, alarm.weekdaysMask),
-                        displayName = displayName(groupName, alarmLabel),
-                        clock = formatClock(alarm.hour, alarm.minute)
-                    )
-                }
-                .minByOrNull { it.time }
+            val candidate = selectNextWidgetAlarm(
+                alarms = db.alarmDao().getAll(),
+                groups = db.groupDao().getAll(),
+                occurrences = db.occurrenceDao().getAllScheduled(),
+                now = System.currentTimeMillis(),
+            ) ?: return null
+
+            return WidgetAlarm(
+                alarmId = candidate.alarm.id,
+                time = candidate.triggerAtMillis,
+                displayName = displayName(candidate.groupName, candidate.alarm.label.trim()),
+                clock = formatClock(candidate.triggerAtMillis),
+            )
         }
 
         private fun buildView(context: Context, next: WidgetAlarm?): RemoteViews {
@@ -90,7 +115,7 @@ class NextAlarmWidgetProvider : AppWidgetProvider() {
                 views.setTextViewText(R.id.widget_time, next.clock)
                 views.setTextViewText(
                     R.id.widget_label,
-                    "${dayLabel(next.time)} ・ ${remaining(next.time)} ・ ${next.displayName}"
+                    "${dayLabel(next.time)} ・ ${next.displayName}"
                 )
             }
             views.setOnClickPendingIntent(R.id.widget_root, openAlarmIntent(context, next?.alarmId))
@@ -109,10 +134,57 @@ class NextAlarmWidgetProvider : AppWidgetProvider() {
             )
         }
 
-        private fun formatClock(hour: Int, minute: Int): String {
+        private fun formatClock(millis: Long): String {
+            val time = Calendar.getInstance().apply { timeInMillis = millis }
+            val hour = time.get(Calendar.HOUR_OF_DAY)
+            val minute = time.get(Calendar.MINUTE)
             val ampm = if (hour < 12) "AM" else "PM"
             val h12 = (hour % 12).let { if (it == 0) 12 else it }
             return String.format(Locale.JAPAN, "%d:%02d %s", h12, minute, ampm)
+        }
+
+        private fun scheduleBoundaryRefresh(context: Context, triggerAtMillis: Long?) {
+            val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as? AlarmManager ?: return
+            val pendingIntent = boundaryRefreshIntent(context)
+            alarmManager.cancel(pendingIntent)
+            if (triggerAtMillis == null) return
+
+            val refreshAt = maxOf(
+                triggerAtMillis + BOUNDARY_REFRESH_DELAY_MS,
+                System.currentTimeMillis() + MIN_REFRESH_DELAY_MS,
+            )
+            runCatching {
+                if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S || alarmManager.canScheduleExactAlarms()) {
+                    alarmManager.setExactAndAllowWhileIdle(
+                        AlarmManager.RTC_WAKEUP,
+                        refreshAt,
+                        pendingIntent,
+                    )
+                } else {
+                    alarmManager.setAndAllowWhileIdle(
+                        AlarmManager.RTC_WAKEUP,
+                        refreshAt,
+                        pendingIntent,
+                    )
+                }
+            }
+        }
+
+        private fun cancelBoundaryRefresh(context: Context) {
+            val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as? AlarmManager ?: return
+            alarmManager.cancel(boundaryRefreshIntent(context))
+        }
+
+        private fun boundaryRefreshIntent(context: Context): PendingIntent {
+            val intent = Intent(context, NextAlarmWidgetProvider::class.java).apply {
+                action = ACTION_REFRESH_AT_BOUNDARY
+            }
+            return PendingIntent.getBroadcast(
+                context,
+                BOUNDARY_REFRESH_REQUEST_CODE,
+                intent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+            )
         }
 
         private fun displayName(groupName: String, alarmLabel: String): String =
@@ -136,13 +208,6 @@ class NextAlarmWidgetProvider : AppWidgetProvider() {
             }
         }
 
-        private fun remaining(millis: Long, now: Long = System.currentTimeMillis()): String {
-            val minutes = ((millis - now) / 60_000L).coerceAtLeast(0)
-            val hours = minutes / 60
-            val mins = minutes % 60
-            return if (hours > 0) "あと${hours}時間${mins}分" else "あと${mins}分"
-        }
-
         private fun dayOfEpoch(c: Calendar): Long {
             val z = c.clone() as Calendar
             z.set(Calendar.HOUR_OF_DAY, 0)
@@ -151,6 +216,13 @@ class NextAlarmWidgetProvider : AppWidgetProvider() {
             z.set(Calendar.MILLISECOND, 0)
             return z.timeInMillis / 86_400_000L
         }
+
+        private const val ACTION_REFRESH_AT_BOUNDARY =
+            "com.galaxyalarm.widget.action.REFRESH_AT_ALARM_BOUNDARY"
+        private const val BOUNDARY_REFRESH_REQUEST_CODE = 810_001
+        private const val BOUNDARY_REFRESH_DELAY_MS = 1_000L
+        private const val MIN_REFRESH_DELAY_MS = 250L
+        private const val TAG = "NextAlarmWidget"
     }
 }
 
@@ -164,6 +236,6 @@ private data class WidgetAlarm(
 /** 1x1 のコンパクト版「次のアラーム」ウィジェット(⏰+時刻のみ)。 */
 class NextAlarmSmallWidgetProvider : AppWidgetProvider() {
     override fun onUpdate(context: Context, appWidgetManager: AppWidgetManager, appWidgetIds: IntArray) {
-        NextAlarmWidgetProvider.updateAllSmall(context, appWidgetManager, appWidgetIds)
+        NextAlarmWidgetProvider.refresh(context)
     }
 }

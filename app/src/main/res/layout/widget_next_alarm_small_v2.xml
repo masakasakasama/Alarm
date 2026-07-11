@@ -25,7 +25,7 @@
         android:textSize="14sp"
         android:textStyle="bold" />
 
-    <TextView
+    <Chronometer
         android:id="@+id/widget_small_label"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
