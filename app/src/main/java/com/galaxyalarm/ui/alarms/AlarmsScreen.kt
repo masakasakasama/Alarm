@@ -203,7 +203,7 @@ fun AlarmsScreen(
             },
             dismissButton = {
                 Row {
-                    TextButton(onClick = { deleteTarget = target; actionTarget = null }) {
+                    TextButton(onClick = { vm.deleteAlarm(target.alarm); actionTarget = null }) {
                         Text("削除", color = MaterialTheme.colorScheme.error)
                     }
                     TextButton(onClick = { actionTarget = null }) { Text("キャンセル") }
