@@ -61,6 +61,7 @@ import com.galaxyalarm.ui.clock.RunningTimerCard
 import com.galaxyalarm.ui.clock.WorldClockCard
 import com.galaxyalarm.ui.TimeFormat
 import com.galaxyalarm.ui.components.PillLevel
+import com.galaxyalarm.ui.components.ConfirmAlarmDeleteDialog
 import com.galaxyalarm.ui.components.SectionCard
 import com.galaxyalarm.ui.components.StatusPill
 
@@ -88,6 +89,7 @@ fun AlarmsScreen(
     }
     val groupedRows = if (showingGroup) emptyList() else groupRows.filter { it.totalCount > 0 }
     var actionTarget by remember { mutableStateOf<AlarmRow?>(null) }
+    var deleteTarget by remember { mutableStateOf<AlarmRow?>(null) }
     val allEnabled = rows.isNotEmpty() && rows.all { it.alarm.enabled }
 
     LazyColumn(
@@ -139,8 +141,8 @@ fun AlarmsScreen(
             val dismissState = rememberSwipeToDismissBoxState(
                 confirmValueChange = { value ->
                     if (value == SwipeToDismissBoxValue.EndToStart) {
-                        vm.deleteAlarm(row.alarm)
-                        true
+                        deleteTarget = row
+                        false
                     } else {
                         false
                     }
@@ -201,12 +203,23 @@ fun AlarmsScreen(
             },
             dismissButton = {
                 Row {
-                    TextButton(onClick = { vm.deleteAlarm(target.alarm); actionTarget = null }) {
+                    TextButton(onClick = { deleteTarget = target; actionTarget = null }) {
                         Text("削除", color = MaterialTheme.colorScheme.error)
                     }
                     TextButton(onClick = { actionTarget = null }) { Text("キャンセル") }
                 }
             }
+        )
+    }
+
+    deleteTarget?.let { target ->
+        ConfirmAlarmDeleteDialog(
+            alarm = target.alarm,
+            onConfirm = {
+                vm.deleteAlarm(target.alarm)
+                deleteTarget = null
+            },
+            onDismiss = { deleteTarget = null },
         )
     }
 }

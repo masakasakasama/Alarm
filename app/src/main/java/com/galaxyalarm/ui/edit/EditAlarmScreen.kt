@@ -49,6 +49,7 @@ import com.galaxyalarm.data.model.VibrationPattern
 import com.galaxyalarm.data.model.Weekdays
 import com.galaxyalarm.ui.TimeFormat
 import com.galaxyalarm.ui.components.SectionCard
+import com.galaxyalarm.ui.components.ConfirmAlarmDeleteDialog
 import com.galaxyalarm.ui.components.WheelTimePicker
 
 private val AmColor = Color(0xFF80DEEA)
@@ -64,6 +65,7 @@ fun EditAlarmScreen(alarmId: Long, groupId: Long = 0L, onDone: () -> Unit, vm: E
     val isAm = alarm.hour < 12
 
     var optionsExpanded by remember { mutableStateOf(false) }
+    var showDeleteConfirm by remember(alarm.id) { mutableStateOf(false) }
 
     Column(
         Modifier
@@ -241,13 +243,24 @@ fun EditAlarmScreen(alarmId: Long, groupId: Long = 0L, onDone: () -> Unit, vm: E
         Button(onClick = { vm.save(onDone) }, modifier = Modifier.fillMaxWidth()) { Text("保存") }
         if (alarmId > 0) {
             OutlinedButton(
-                onClick = { vm.delete(onDone) },
+                onClick = { showDeleteConfirm = true },
                 modifier = Modifier.fillMaxWidth(),
                 colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)
             ) { Text("削除") }
         }
         OutlinedButton(onClick = onDone, modifier = Modifier.fillMaxWidth()) { Text("キャンセル") }
         Spacer(Modifier.height(24.dp))
+    }
+
+    if (showDeleteConfirm) {
+        ConfirmAlarmDeleteDialog(
+            alarm = alarm,
+            onConfirm = {
+                showDeleteConfirm = false
+                vm.delete(onDone)
+            },
+            onDismiss = { showDeleteConfirm = false },
+        )
     }
 }
 
