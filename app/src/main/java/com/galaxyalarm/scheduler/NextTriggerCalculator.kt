@@ -48,8 +48,13 @@ object NextTriggerCalculator {
                 set(Calendar.MINUTE, minute)
             }
             val dayIndex = calToDayIndex(candidate.get(Calendar.DAY_OF_WEEK))
-            if (Weekdays.has(weekdaysMask, dayIndex) && candidate.timeInMillis > fromMillis) {
-                return candidate.timeInMillis
+            if (Weekdays.has(weekdaysMask, dayIndex)) {
+                // A reconciliation can run a few seconds after this minute starts.
+                // Deliver shortly instead of moving a repeating alarm to its next day.
+                if (offset == 0 && isSameMinute(candidate, fromMillis, timeZone)) {
+                    return fromMillis + CURRENT_MINUTE_GRACE_MS
+                }
+                if (candidate.timeInMillis > fromMillis) return candidate.timeInMillis
             }
         }
 

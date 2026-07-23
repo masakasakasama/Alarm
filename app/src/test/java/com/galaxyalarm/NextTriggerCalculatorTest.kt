@@ -40,6 +40,14 @@ class NextTriggerCalculatorTest {
         assertEquals(cal(2026, 6, 8, 6, 0), next) // 翌日の月曜
     }
 
+    @Test fun repeating_sameMinute_firesSoonInsteadOfNextWeek() {
+        val zone = TimeZone.getTimeZone("Asia/Tokyo")
+        val from = cal(2026, 6, 8, 7, 15) + 30_000 // Monday 07:15:30
+        val mondayOnly = 0b0000001
+        val next = NextTriggerCalculator.nextTrigger(7, 15, mondayOnly, from, zone)
+        assertEquals(from + 10_000, next)
+    }
+
     @Test fun result_isAlwaysFuture() {
         val from = System.currentTimeMillis()
         val next = NextTriggerCalculator.nextTrigger(0, 0, 0b1111111, from)

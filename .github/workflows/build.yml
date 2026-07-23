@@ -29,13 +29,13 @@ jobs:
       - name: Install SDK packages
         run: |
           yes | /usr/local/lib/android/sdk/cmdline-tools/latest/bin/sdkmanager \
-            "platforms;android-35" "build-tools;35.0.0" "platform-tools"
+            "platforms;android-36" "build-tools;36.0.0" "platform-tools"
 
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
 
-      - name: Unit tests + assemble debug & release APK
-        run: ./gradlew testDebugUnitTest assembleDebug assembleRelease --no-daemon --stacktrace
+      - name: Unit tests + lint + assemble debug & release APK
+        run: ./gradlew testDebugUnitTest lintDebug assembleDebug assembleRelease --no-daemon --stacktrace
 
       - name: Upload debug APK artifact
         uses: actions/upload-artifact@v4
@@ -70,3 +70,20 @@ jobs:
             APK: GalaxyAlarm-${{ env.APP_TAG }}.apk
 
             スマホのブラウザでこのページを開き、APKをダウンロードしてインストールしてください。
+
+      - name: Verify published APK URL (main only)
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        shell: bash
+        run: |
+          URL="https://github.com/${{ github.repository }}/releases/download/${APP_TAG}/GalaxyAlarm-${APP_TAG}.apk"
+          for i in {1..12}; do
+            status="$(curl -L -s -o /dev/null -w '%{http_code}' "$URL")"
+            if [ "$status" = "200" ]; then
+              echo "Verified $URL"
+              exit 0
+            fi
+            echo "Waiting for APK asset ($status): $URL"
+            sleep 10
+          done
+          echo "APK asset was not reachable: $URL" >&2
+          exit 1

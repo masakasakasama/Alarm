@@ -5,7 +5,6 @@
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
     <!-- 信頼性のための権限群 -->
-    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
     <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
@@ -51,6 +50,7 @@
         <!-- 鳴動用 全画面アクティビティ -->
         <activity
             android:name=".ring.AlarmRingActivity"
+            android:directBootAware="true"
             android:exported="false"
             android:excludeFromRecents="false"
             android:launchMode="singleTop"
@@ -62,18 +62,21 @@
         <!-- 鳴動中の Foreground Service -->
         <service
             android:name=".service.AlarmService"
+            android:directBootAware="true"
             android:exported="false"
             android:foregroundServiceType="mediaPlayback" />
 
         <!-- アラーム発火 Receiver -->
         <receiver
             android:name=".receiver.AlarmReceiver"
+            android:directBootAware="true"
             android:exported="false" />
 
         <!-- 起動完了・更新・時刻/TZ変更 -->
         <receiver
             android:name=".receiver.SystemEventReceiver"
-            android:exported="true">
+            android:directBootAware="true"
+            android:exported="false">
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
                 <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
@@ -81,15 +84,6 @@
                 <action android:name="android.intent.action.TIMEZONE_CHANGED" />
                 <action android:name="android.intent.action.LOCKED_BOOT_COMPLETED" />
                 <action android:name="android.intent.action.USER_UNLOCKED" />
-            </intent-filter>
-        </receiver>
-
-        <!-- Android 12+: exact alarm 権限状態変更 -->
-        <receiver
-            android:name=".receiver.ExactAlarmPermissionReceiver"
-            android:exported="true">
-            <intent-filter>
-                <action android:name="android.app.action.SCHEDULE_EXACT_ALARM_PERMISSION_STATE_CHANGED" />
             </intent-filter>
         </receiver>
 

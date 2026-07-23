@@ -1,5 +1,6 @@
 package com.galaxyalarm.scheduler
 
+import android.annotation.SuppressLint
 import android.app.AlarmManager
 import android.app.PendingIntent
 import android.content.Context
@@ -22,9 +23,10 @@ import kotlinx.coroutines.sync.withLock
 
 /**
  * Room を真実として AlarmManager の予約を構築/再構築する。
- * - setAlarmClock を最優先、無理なら setExactAndAllowWhileIdle。
+ * - ユーザー可視の setAlarmClock を主予約と予備予約に使う。
  * - 予約は ScheduledOccurrence 単位、requestCode は PK(=一意)を使うため衝突しない。
  */
+@SuppressLint("ScheduleExactAlarm", "MissingPermission") // Lint only recognizes SCHEDULE_EXACT_ALARM.
 class AlarmScheduler(
     private val context: Context,
     private val groupDao: AlarmGroupDao,
@@ -37,12 +39,9 @@ class AlarmScheduler(
         context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
     private val mutex = Mutex()
 
-    /** すべての有効アラーム(有効グループ内)を Room から再構築する。 */
+    /** Room と AlarmManager を、既存予約を先に失わないように整合させる。 */
     suspend fun rescheduleAll(reason: String) = mutex.withLock {
         Log.i(TAG, "rescheduleAll: $reason")
-        // 既存 SCHEDULED を全キャンセル
-        occurrenceDao.getAllScheduled().forEach { cancelOccurrenceLocked(it) }
-
         if (!permissions.canScheduleExactAlarms()) {
             logDao.insert(
                 AlarmEventLog(
@@ -55,19 +54,46 @@ class AlarmScheduler(
             return@withLock
         }
 
-        val groups = groupDao.getAll().associateBy { it.id }
+        val groups = groupDao.getAll()
         val alarms = alarmDao.getAll()
-        var scheduled = 0
-        for (alarm in alarms) {
-            val group = groups[alarm.groupId] ?: continue
-            if (!alarm.enabled || !group.enabled) continue
-            if (scheduleAlarmLocked(alarm)) scheduled++
+        val plan = ScheduleReconciliation.plan(
+            groups = groups,
+            alarms = alarms,
+            occurrences = occurrenceDao.getAllScheduled(),
+            now = System.currentTimeMillis(),
+            lateDeliveryGraceMs = LATE_DELIVERY_GRACE_MS,
+        )
+        plan.cancel.forEach { cancelOccurrenceLocked(it) }
+        var reasserted = 0
+        for (occurrence in plan.reassert) {
+            if (reassertOccurrenceLocked(occurrence)) reasserted += 1
+        }
+        var created = 0
+        for (alarm in plan.create) {
+            if (scheduleAlarmLocked(alarm)) created += 1
         }
         // 古い終了済み予約・古いログを掃除
         val weekAgo = System.currentTimeMillis() - 7L * 24 * 60 * 60 * 1000
         occurrenceDao.purgeOld(weekAgo)
         logDao.purgeOld(System.currentTimeMillis() - 30L * 24 * 60 * 60 * 1000)
-        Log.i(TAG, "rescheduleAll done: $scheduled 件")
+        Log.i(TAG, "rescheduleAll done: reasserted=$reasserted created=$created canceled=${plan.cancel.size}")
+    }
+
+    /** 壁時計の変更時だけ通常予約を再計算し、保留中のスヌーズは保持する。 */
+    suspend fun recalculateRegularAlarms(reason: String) = mutex.withLock {
+        Log.i(TAG, "recalculateRegularAlarms: $reason")
+        if (!permissions.canScheduleExactAlarms()) return@withLock
+        val groups = groupDao.getAll().associateBy { it.id }
+        alarmDao.getAll().forEach { alarm ->
+            val oldRegular = occurrenceDao.getScheduledForAlarm(alarm.id)
+                .filter { it.snoozeCount == 0 }
+            val enabled = alarm.enabled && groups[alarm.groupId]?.enabled == true
+            if (!enabled) {
+                occurrenceDao.getScheduledForAlarm(alarm.id).forEach { cancelOccurrenceLocked(it) }
+            } else if (scheduleAlarmLocked(alarm)) {
+                oldRegular.forEach { cancelOccurrenceLocked(it) }
+            }
+        }
     }
 
     /** 1 アラームの次回発火を予約。成功なら true。 */
@@ -77,8 +103,10 @@ class AlarmScheduler(
 
     /** Replace every existing occurrence for an edited alarm as one serialized operation. */
     suspend fun replaceAlarm(alarm: AlarmItem): Boolean = mutex.withLock {
-        occurrenceDao.getScheduledForAlarm(alarm.id).forEach { cancelOccurrenceLocked(it) }
-        scheduleAlarmLocked(alarm)
+        val old = occurrenceDao.getScheduledForAlarm(alarm.id)
+        val scheduled = scheduleAlarmLocked(alarm)
+        if (scheduled) old.forEach { cancelOccurrenceLocked(it) }
+        scheduled
     }
 
     /** Keep the regular next occurrence and replace only an existing snooze retry. */
@@ -126,19 +154,13 @@ class AlarmScheduler(
 
         return try {
             val pi = firePendingIntent(occ.id, alarmId, requestCode)
-            if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.S || alarmManager.canScheduleExactAlarms()) {
-                val showPi = showPendingIntent(alarmId, requestCode)
-                alarmManager.setAlarmClock(
-                    AlarmManager.AlarmClockInfo(triggerAt, showPi), pi
-                )
-            } else {
-                alarmManager.setExactAndAllowWhileIdle(
-                    AlarmManager.RTC_WAKEUP, triggerAt, pi
-                )
-            }
-            scheduleBackup(occ)
+            val showPi = showPendingIntent(alarmId, requestCode)
+            alarmManager.setAlarmClock(AlarmManager.AlarmClockInfo(triggerAt, showPi), pi)
+            scheduleBackup(occ, triggerAt)
             true
         } catch (e: Exception) {
+            runCatching { cancelPendingIntent(firePendingIntent(occ.id, alarmId, requestCode)) }
+            runCatching { cancelPendingIntent(backupPendingIntent(occ)) }
             occurrenceDao.setStatus(occ.id, OccurrenceStatus.FAILED, System.currentTimeMillis())
             logDao.insert(
                 AlarmEventLog(
@@ -182,14 +204,35 @@ class AlarmScheduler(
         }
     }
 
-    private fun scheduleBackup(occ: ScheduledOccurrence) {
-        val backupAt = occ.triggerAtMillis + BACKUP_DELAY_MS
+    private suspend fun reassertOccurrenceLocked(occ: ScheduledOccurrence): Boolean {
+        val now = System.currentTimeMillis()
+        val triggerAt = maxOf(occ.triggerAtMillis, now + REASSERT_DELAY_MS)
+        return try {
+            val pi = firePendingIntent(occ.id, occ.alarmId, occ.requestCode)
+            val showPi = showPendingIntent(occ.alarmId, occ.requestCode)
+            alarmManager.setAlarmClock(AlarmManager.AlarmClockInfo(triggerAt, showPi), pi)
+            val backupScheduled = scheduleBackup(occ, triggerAt)
+            if (triggerAt != occ.triggerAtMillis) {
+                occurrenceDao.update(occ.copy(triggerAtMillis = triggerAt, updatedAt = now))
+            }
+            backupScheduled
+        } catch (error: Exception) {
+            Log.e(TAG, "failed to reassert occurrence ${occ.id}", error)
+            false
+        }
+    }
+
+    private fun scheduleBackup(occ: ScheduledOccurrence, primaryAt: Long): Boolean {
+        val backupAt = primaryAt + BACKUP_DELAY_MS
         val backupPi = backupPendingIntent(occ)
-        runCatching {
+        return runCatching {
             val showPi = showPendingIntent(occ.alarmId, occ.requestCode)
             alarmManager.setAlarmClock(AlarmManager.AlarmClockInfo(backupAt, showPi), backupPi)
-        }.onFailure { error ->
+            true
+        }.getOrElse { error ->
+            runCatching { cancelPendingIntent(backupPi) }
             Log.e(TAG, "failed to schedule backup for occurrence ${occ.id}", error)
+            false
         }
     }
 
@@ -203,6 +246,22 @@ class AlarmScheduler(
             context, backupRequestCode(occ.requestCode), intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
+    }
+
+    fun hasSystemReservation(occ: ScheduledOccurrence): Boolean {
+        val primary = PendingIntent.getBroadcast(
+            context,
+            occ.requestCode,
+            Intent(context, AlarmReceiver::class.java).apply { action = AlarmIntents.ACTION_FIRE },
+            PendingIntent.FLAG_NO_CREATE or PendingIntent.FLAG_IMMUTABLE,
+        )
+        val backup = PendingIntent.getBroadcast(
+            context,
+            backupRequestCode(occ.requestCode),
+            Intent(context, AlarmReceiver::class.java).apply { action = AlarmIntents.ACTION_FIRE_BACKUP },
+            PendingIntent.FLAG_NO_CREATE or PendingIntent.FLAG_IMMUTABLE,
+        )
+        return primary != null && backup != null
     }
 
     private fun cancelPendingIntent(pendingIntent: PendingIntent) {
@@ -236,6 +295,8 @@ class AlarmScheduler(
     companion object {
         private const val TAG = "AlarmScheduler"
         private const val BACKUP_DELAY_MS = 10_000L
+        private const val REASSERT_DELAY_MS = 2_000L
+        internal const val LATE_DELIVERY_GRACE_MS = 10 * 60_000L
 
         internal fun backupRequestCode(primaryRequestCode: Int): Int =
             primaryRequestCode xor Int.MIN_VALUE

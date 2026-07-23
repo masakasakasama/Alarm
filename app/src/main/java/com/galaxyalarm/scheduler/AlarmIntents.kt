@@ -14,6 +14,7 @@ object AlarmIntents {
     const val EXTRA_OCCURRENCE_ID = "occurrence_id"
     const val EXTRA_ALARM_ID = "alarm_id"
     const val EXTRA_BACKUP_FIRE = "backup_fire"
+    const val EXTRA_RECEIVER_RETRY_COUNT = "receiver_retry_count"
     /** タイマー終了時に音を鳴らすか(false=バイブのみの音なし)。 */
     const val EXTRA_TIMER_SOUND = "timer_sound"
     const val EXTRA_TIMER_ID = "timer_id"

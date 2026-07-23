@@ -37,6 +37,8 @@ class AlarmRepository(
     suspend fun alarmCount() = alarmDao.count()
     suspend fun groupCount() = getVisibleGroups().size
     suspend fun latestLog() = logDao.latest()
+    fun hasSystemReservation(occurrence: ScheduledOccurrence) =
+        scheduler.hasSystemReservation(occurrence)
 
     suspend fun addGroup(name: String): Long {
         val order = getVisibleGroups().size
@@ -202,6 +204,11 @@ class AlarmRepository(
     suspend fun rescheduleAll(reason: String) {
         enableGroupsForEnabledAlarms()
         scheduler.rescheduleAll(reason)
+    }
+
+    suspend fun recalculateRegularAlarms(reason: String) {
+        enableGroupsForEnabledAlarms()
+        scheduler.recalculateRegularAlarms(reason)
     }
 
     suspend fun exportBackupJson(): String {

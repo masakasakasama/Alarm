@@ -1,12 +1,18 @@
 package com.galaxyalarm.reliability
 
 import android.app.AlarmManager
+import android.content.ComponentName
 import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.PowerManager
 import androidx.core.content.ContextCompat
 import android.Manifest
+import com.galaxyalarm.data.db.AppDatabase
+import com.galaxyalarm.receiver.AlarmReceiver
+import com.galaxyalarm.receiver.SystemEventReceiver
+import com.galaxyalarm.ring.AlarmRingActivity
+import com.galaxyalarm.service.AlarmService
 
 /**
  * 各種権限・OS状態の確認を一元化する。アラームの信頼性に直結するため、
@@ -43,4 +49,38 @@ class PermissionChecker(private val context: Context) {
             val nm = context.getSystemService(android.app.NotificationManager::class.java)
             nm.canUseFullScreenIntent()
         } else true
+
+    fun supportsDirectBoot(): Boolean =
+        AppDatabase.isInDeviceProtectedStorage(context) &&
+            receiverDirectBootAware(AlarmReceiver::class.java) &&
+            receiverDirectBootAware(SystemEventReceiver::class.java) &&
+            serviceDirectBootAware(AlarmService::class.java) &&
+            activityDirectBootAware(AlarmRingActivity::class.java)
+
+    @Suppress("DEPRECATION")
+    private fun receiverDirectBootAware(clazz: Class<*>): Boolean = runCatching {
+        val component = ComponentName(context, clazz)
+        val info = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            context.packageManager.getReceiverInfo(component, PackageManager.ComponentInfoFlags.of(0))
+        } else context.packageManager.getReceiverInfo(component, 0)
+        info.directBootAware
+    }.getOrDefault(false)
+
+    @Suppress("DEPRECATION")
+    private fun serviceDirectBootAware(clazz: Class<*>): Boolean = runCatching {
+        val component = ComponentName(context, clazz)
+        val info = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            context.packageManager.getServiceInfo(component, PackageManager.ComponentInfoFlags.of(0))
+        } else context.packageManager.getServiceInfo(component, 0)
+        info.directBootAware
+    }.getOrDefault(false)
+
+    @Suppress("DEPRECATION")
+    private fun activityDirectBootAware(clazz: Class<*>): Boolean = runCatching {
+        val component = ComponentName(context, clazz)
+        val info = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            context.packageManager.getActivityInfo(component, PackageManager.ComponentInfoFlags.of(0))
+        } else context.packageManager.getActivityInfo(component, 0)
+        info.directBootAware
+    }.getOrDefault(false)
 }

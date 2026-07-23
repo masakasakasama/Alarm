@@ -1,5 +1,6 @@
 package com.galaxyalarm.timer
 
+import android.annotation.SuppressLint
 import android.app.AlarmManager
 import android.app.PendingIntent
 import android.content.Context
@@ -21,6 +22,7 @@ data class TimerEntry(
 
 data class TimerHistoryEntry(val seconds: Int, val soundOn: Boolean)
 
+@SuppressLint("ScheduleExactAlarm", "MissingPermission") // USE_EXACT_ALARM is declared for this clock app.
 object TimerController {
     private const val PREFS = "timer_state"
     private const val KEY_IDS = "timer_ids"
@@ -185,10 +187,10 @@ object TimerController {
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
-        try {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S || am.canScheduleExactAlarms()) {
             am.setAlarmClock(AlarmManager.AlarmClockInfo(entry.endAt, showPi), pi)
-        } catch (e: SecurityException) {
-            am.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, entry.endAt, pi)
+        } else {
+            am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, entry.endAt, pi)
         }
     }
 

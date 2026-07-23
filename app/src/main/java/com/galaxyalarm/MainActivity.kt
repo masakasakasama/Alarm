@@ -54,7 +54,6 @@ class MainActivity : ComponentActivity() {
         val container = app.container
         if (container.permissions.canScheduleExactAlarms()) {
             app.appScope.launch {
-                container.repository.rescheduleAll("activity-resume")
                 container.reliabilityChecker.runCheck()
             }
         }

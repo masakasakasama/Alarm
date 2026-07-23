@@ -16,14 +16,14 @@ val keystoreProps = Properties().apply {
 
 android {
     namespace = "com.galaxyalarm"
-    compileSdk = 35
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "com.galaxyalarm"
         minSdk = 26
-        targetSdk = 35
-        versionCode = 54
-        versionName = "2.1.4"
+        targetSdk = 36
+        versionCode = 55
+        versionName = "2.2.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }
     }
@@ -71,8 +71,8 @@ android {
         buildConfig = true
     }
     lint {
-        abortOnError = false
-        checkReleaseBuilds = false
+        abortOnError = true
+        checkReleaseBuilds = true
     }
     packaging {
         resources {

@@ -7,7 +7,10 @@ import android.media.MediaPlayer
 import android.media.RingtoneManager
 import android.net.Uri
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.os.VibrationEffect
+import android.os.VibrationAttributes
 import android.os.Vibrator
 import android.os.VibratorManager
 import android.util.Log
@@ -19,6 +22,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import java.util.concurrent.atomic.AtomicBoolean
 
 class AlarmPlayer(private val context: Context) {
 
@@ -32,7 +36,9 @@ class AlarmPlayer(private val context: Context) {
         }
     }
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private val mainHandler = Handler(Looper.getMainLooper())
     private var fadeJob: Job? = null
+    private var prepareTimeout: Runnable? = null
     private var playbackGeneration = 0
 
     fun start(
@@ -42,17 +48,38 @@ class AlarmPlayer(private val context: Context) {
         pattern: VibrationPattern,
         fadeInSeconds: Int = 0,
         fadeInStartVolume: Int = 5,
+        onOutputStarted: () -> Unit = {},
+        onOutputFailed: () -> Unit = {},
     ) {
+        val resolved = AtomicBoolean(false)
+        val outputStarted = AtomicBoolean(false)
+        fun started() {
+            outputStarted.set(true)
+            if (resolved.compareAndSet(false, true)) onOutputStarted()
+        }
+        fun failed() {
+            if (!outputStarted.get() && resolved.compareAndSet(false, true)) onOutputFailed()
+        }
+
         when (soundMode) {
             SoundMode.SOUND -> {
-                playSound(ringtoneUri, fadeInSeconds, fadeInStartVolume) {
-                    if (!vibrationEnabled) vibrate(pattern)
-                }
-                if (vibrationEnabled) vibrate(pattern)
+                if (vibrationEnabled && vibrate(pattern)) started()
+                playSound(
+                    ringtoneUri = ringtoneUri,
+                    fadeInSeconds = fadeInSeconds,
+                    fadeInStartVolume = fadeInStartVolume,
+                    onStarted = ::started,
+                    onVolumeUnavailable = {
+                        if (!vibrationEnabled && vibrate(pattern)) started()
+                    },
+                    onAllFailed = {
+                        if (!vibrationEnabled && vibrate(pattern)) started() else failed()
+                    },
+                )
             }
             SoundMode.VIBRATE_ONLY,
             SoundMode.SILENT -> {
-                vibrate(pattern)
+                if (vibrate(pattern)) started() else failed()
             }
         }
     }
@@ -61,6 +88,8 @@ class AlarmPlayer(private val context: Context) {
         ringtoneUri: String?,
         fadeInSeconds: Int,
         fadeInStartVolume: Int,
+        onStarted: () -> Unit,
+        onVolumeUnavailable: () -> Unit,
         onAllFailed: () -> Unit,
     ) {
         val candidates = listOfNotNull(
@@ -71,7 +100,7 @@ class AlarmPlayer(private val context: Context) {
         ).distinct()
         val generation = ++playbackGeneration
         val startVol = if (fadeInSeconds > 0) {
-            (fadeInStartVolume / 100f).coerceIn(0f, 1f)
+            (fadeInStartVolume / 100f).coerceIn(MIN_FADE_VOLUME, 1f)
         } else {
             1.0f
         }
@@ -83,7 +112,10 @@ class AlarmPlayer(private val context: Context) {
                 audioManager.getStreamMaxVolume(AudioManager.STREAM_ALARM),
                 0
             )
-        }.onFailure { Log.e(TAG, "failed to raise alarm volume", it) }
+        }.onFailure {
+            Log.e(TAG, "failed to raise alarm volume", it)
+            onVolumeUnavailable()
+        }
 
         fun tryCandidate(index: Int) {
             if (generation != playbackGeneration) return
@@ -105,15 +137,30 @@ class AlarmPlayer(private val context: Context) {
                 mediaPlayer.setDataSource(context, uri)
                 mediaPlayer.isLooping = true
                 mediaPlayer.setOnPreparedListener { prepared ->
-                    if (generation != playbackGeneration) {
+                    if (generation != playbackGeneration || player !== prepared) {
                         prepared.release()
                         return@setOnPreparedListener
                     }
-                    prepared.setVolume(startVol, startVol)
-                    prepared.start()
-                    if (fadeInSeconds > 0) startFade(fadeInSeconds, startVol)
+                    clearPrepareTimeout()
+                    runCatching {
+                        prepared.setVolume(startVol, startVol)
+                        prepared.start()
+                    }.onSuccess {
+                        onStarted()
+                        if (fadeInSeconds > 0) startFade(fadeInSeconds, startVol)
+                    }.onFailure { error ->
+                        Log.e(TAG, "alarm sound failed to start: $uri", error)
+                        runCatching { prepared.release() }
+                        if (player === prepared) player = null
+                        tryCandidate(index + 1)
+                    }
                 }
                 mediaPlayer.setOnErrorListener { failed, _, _ ->
+                    if (generation != playbackGeneration || player !== failed) {
+                        runCatching { failed.release() }
+                        return@setOnErrorListener true
+                    }
+                    clearPrepareTimeout()
                     runCatching { failed.release() }
                     if (player === failed) player = null
                     tryCandidate(index + 1)
@@ -121,7 +168,18 @@ class AlarmPlayer(private val context: Context) {
                 }
                 player = mediaPlayer
                 mediaPlayer.prepareAsync()
+                val timeout = Runnable {
+                    if (generation == playbackGeneration && player === mediaPlayer) {
+                        Log.e(TAG, "alarm sound preparation timed out: $uri")
+                        runCatching { mediaPlayer.release() }
+                        player = null
+                        tryCandidate(index + 1)
+                    }
+                }
+                prepareTimeout = timeout
+                mainHandler.postDelayed(timeout, PREPARE_TIMEOUT_MS)
             } catch (error: Exception) {
+                clearPrepareTimeout()
                 Log.e(TAG, "alarm sound source failed: $uri", error)
                 runCatching { mediaPlayer.release() }
                 if (player === mediaPlayer) player = null
@@ -146,22 +204,43 @@ class AlarmPlayer(private val context: Context) {
         }
     }
 
-    private fun vibrate(pattern: VibrationPattern) {
-        try {
+    private fun vibrate(pattern: VibrationPattern): Boolean {
+        return try {
+            if (!vibrator.hasVibrator()) return false
             val timings = pattern.toTimings()
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                vibrator.vibrate(VibrationEffect.createWaveform(timings, 0))
+            val effect = VibrationEffect.createWaveform(timings, 0)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                vibrator.vibrate(
+                    effect,
+                    VibrationAttributes.Builder()
+                        .setUsage(VibrationAttributes.USAGE_ALARM)
+                        .build(),
+                )
             } else {
                 @Suppress("DEPRECATION")
-                vibrator.vibrate(timings, 0)
+                vibrator.vibrate(
+                    effect,
+                    AudioAttributes.Builder()
+                        .setUsage(AudioAttributes.USAGE_ALARM)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                        .build(),
+                )
             }
+            true
         } catch (e: Exception) {
             Log.e(TAG, "vibrate failed", e)
+            false
         }
+    }
+
+    private fun clearPrepareTimeout() {
+        prepareTimeout?.let { mainHandler.removeCallbacks(it) }
+        prepareTimeout = null
     }
 
     fun stop() {
         playbackGeneration += 1
+        clearPrepareTimeout()
         fadeJob?.cancel()
         fadeJob = null
         try {
@@ -178,5 +257,9 @@ class AlarmPlayer(private val context: Context) {
         }
     }
 
-    companion object { private const val TAG = "AlarmPlayer" }
+    companion object {
+        private const val TAG = "AlarmPlayer"
+        private const val PREPARE_TIMEOUT_MS = 1_500L
+        private const val MIN_FADE_VOLUME = 0.05f
+    }
 }

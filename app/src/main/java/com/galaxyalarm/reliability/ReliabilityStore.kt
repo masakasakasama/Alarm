@@ -1,9 +1,15 @@
 package com.galaxyalarm.reliability
 
 import android.content.Context
+import android.os.UserManager
 
 class ReliabilityStore(context: Context) {
-    private val sp = context.getSharedPreferences("reliability", Context.MODE_PRIVATE)
+    private val sp = context.createDeviceProtectedStorageContext().run {
+        if (context.getSystemService(UserManager::class.java).isUserUnlocked) {
+            moveSharedPreferencesFrom(context.applicationContext, PREFS_NAME)
+        }
+        getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+    }
 
     var lastCheckAt: Long
         get() = sp.getLong("lastCheckAt", 0L)
@@ -33,4 +39,14 @@ class ReliabilityStore(context: Context) {
     var presetsSeeded: Boolean
         get() = sp.getBoolean("presetsSeeded", false)
         set(v) = sp.edit().putBoolean("presetsSeeded", v).apply()
+
+    var lastSystemEvent: String
+        get() = sp.getString("lastSystemEvent", "未受信") ?: "未受信"
+        set(v) = sp.edit().putString("lastSystemEvent", v).apply()
+
+    var lastSystemEventAt: Long
+        get() = sp.getLong("lastSystemEventAt", 0L)
+        set(v) = sp.edit().putLong("lastSystemEventAt", v).apply()
+
+    private companion object { const val PREFS_NAME = "reliability" }
 }

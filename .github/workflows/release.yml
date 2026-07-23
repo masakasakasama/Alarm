@@ -9,7 +9,7 @@ on:
       version:
         description: "Release tag, for example v2.0.1"
         required: true
-        default: "v2.1.4"
+        default: "v2.2.0"
 
 permissions:
   contents: write
@@ -41,7 +41,7 @@ jobs:
 
       - name: Install SDK packages
         run: |
-          sdkmanager "platforms;android-35" "build-tools;35.0.0" "platform-tools"
+          sdkmanager "platforms;android-36" "build-tools;36.0.0" "platform-tools"
 
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew

@@ -1,4 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <full-backup-content>
     <include domain="database" path="galaxy_alarm.db" />
+    <include domain="device_database" path="galaxy_alarm.db" />
+    <include domain="device_sharedpref" path="global_alarm_prefs.xml" />
 </full-backup-content>

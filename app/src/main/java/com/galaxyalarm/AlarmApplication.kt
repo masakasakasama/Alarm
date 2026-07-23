@@ -1,7 +1,9 @@
 package com.galaxyalarm
 
 import android.app.Application
+import android.app.ActivityManager
 import android.os.Build
+import android.os.UserManager
 import com.galaxyalarm.data.db.AppDatabase
 import com.galaxyalarm.data.repo.AlarmRepository
 import com.galaxyalarm.notify.NotificationHelper
@@ -40,59 +42,91 @@ class AppContainer(app: Application) {
 }
 
 class AlarmApplication : Application() {
-    lateinit var container: AppContainer
-        private set
+    @Volatile private var appContainer: AppContainer? = null
+    private var coreStarted = false
+    private var unlockedStarted = false
+
+    val container: AppContainer
+        get() = containerOrNull() ?: error("Alarm data is unavailable before first unlock")
 
     val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     override fun onCreate() {
         super.onCreate()
         instance = this
-        container = AppContainer(this)
         NotificationHelper(this).also {
             it.createChannels()
             it.cancelObsoleteNextAlarmStatus()
         }
-        // 実行中タイマーを復元(タブ移動・アプリ終了をまたいで生存)。
-        runCatching { com.galaxyalarm.timer.TimerController.init(this) }
+        initializeAvailable()
+    }
 
-        // アプリ起動時: 既定グループ確保 → 全再スケジュール → 健全性チェック。
-        appScope.launch {
-            // プリセット群は「初回・かつグループが1つも無いとき」だけ投入する。
-            // 一度削除したプリセットがアプリ更新で復活しないようにフラグで一度きりにする。
-            // (ensureDefaultGroup より前に判定すること。既定グループ作成で count が増えるため)
-            if (!container.reliabilityStore.presetsSeeded) {
-                // 「過去に一度も起動していない=真の初回」のみ投入。
-                // lastCheckAt は過去の起動で必ずセットされるので、削除済みでも復活しない。
-                if (container.reliabilityStore.lastCheckAt == 0L) {
-                    container.repository.ensureImagePresetGroups()
-                }
-                container.reliabilityStore.presetsSeeded = true
-            }
-            container.repository.ensureDefaultGroup()
-            val fingerprint = Build.FINGERPRINT ?: ""
-            val reason = if (
-                container.reliabilityStore.lastBuildFingerprint.isNotBlank() &&
-                container.reliabilityStore.lastBuildFingerprint != fingerprint
-            ) {
-                "os-build-changed"
-            } else {
-                "app-start"
-            }
-            container.repository.rescheduleAll(reason)
-            val report = container.reliabilityChecker.runCheck()
-            container.reliabilityStore.lastBuildFingerprint = fingerprint
-            if (report.hasCritical) {
-                val issues = report.items.filter { !it.ok }.joinToString("、") { it.title }
-                NotificationHelper(this@AlarmApplication).showReliabilityWarning(
-                    title = "アラーム設定を確認してください",
-                    message = "OS更新または権限変更の影響で要対応項目があります: $issues"
-                )
-            }
-            NextAlarmWidgetProvider.refresh(this@AlarmApplication)
+    /** Called again from USER_UNLOCKED because Application.onCreate is not repeated. */
+    fun initializeAvailable() {
+        val current = containerOrNull() ?: return
+        val unlocked = getSystemService(UserManager::class.java).isUserUnlocked
+        val startCore: Boolean
+        val startUnlocked: Boolean
+        synchronized(this) {
+            startCore = !coreStarted
+            if (startCore) coreStarted = true
+            startUnlocked = unlocked && !unlockedStarted
+            if (startUnlocked) unlockedStarted = true
         }
-        // バックグラウンド定期チェック。
-        ScheduleHealthWorker.schedule(this)
+
+        if (startUnlocked) {
+            runCatching { com.galaxyalarm.timer.TimerController.init(this) }
+            ScheduleHealthWorker.schedule(this)
+        }
+        if (!startCore && !startUnlocked) return
+
+        appScope.launch {
+            if (startUnlocked) {
+                if (!current.reliabilityStore.presetsSeeded) {
+                    if (current.reliabilityStore.lastCheckAt == 0L) {
+                        current.repository.ensureImagePresetGroups()
+                    }
+                    current.reliabilityStore.presetsSeeded = true
+                }
+                current.repository.ensureDefaultGroup()
+            }
+
+            val fingerprint = Build.FINGERPRINT ?: ""
+            val wasForceStopped = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.VANILLA_ICE_CREAM) {
+                getSystemService(ActivityManager::class.java)
+                    .getHistoricalProcessStartReasons(1)
+                    .firstOrNull()
+                    ?.wasForceStopped() == true
+            } else false
+            val reason = if (wasForceStopped) {
+                "force-stop-recovery"
+            } else if (
+                current.reliabilityStore.lastBuildFingerprint.isNotBlank() &&
+                current.reliabilityStore.lastBuildFingerprint != fingerprint
+            ) "os-build-changed" else if (unlocked) "app-start" else "locked-boot-start"
+            current.repository.rescheduleAll(reason)
+
+            if (unlocked) {
+                val report = current.reliabilityChecker.runCheck()
+                current.reliabilityStore.lastBuildFingerprint = fingerprint
+                if (report.hasCritical) {
+                    val issues = report.items.filter { !it.ok }.joinToString("、") { it.title }
+                    NotificationHelper(this@AlarmApplication).showReliabilityWarning(
+                        title = "アラーム設定を確認してください",
+                        message = "OS更新または権限変更の影響で要対応項目があります: $issues"
+                    )
+                }
+                NextAlarmWidgetProvider.refresh(this@AlarmApplication)
+            }
+        }
+    }
+
+    fun containerOrNull(): AppContainer? {
+        appContainer?.let { return it }
+        if (!AppDatabase.canOpen(this)) return null
+        return synchronized(this) {
+            appContainer ?: AppContainer(this).also { appContainer = it }
+        }
     }
 
     companion object {

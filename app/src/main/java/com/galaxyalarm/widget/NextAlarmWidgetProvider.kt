@@ -1,5 +1,6 @@
 package com.galaxyalarm.widget
 
+import android.annotation.SuppressLint
 import android.app.AlarmManager
 import android.app.PendingIntent
 import android.appwidget.AppWidgetManager
@@ -143,6 +144,7 @@ class NextAlarmWidgetProvider : AppWidgetProvider() {
             return String.format(Locale.JAPAN, "%d:%02d %s", h12, minute, ampm)
         }
 
+        @SuppressLint("ScheduleExactAlarm", "MissingPermission") // USE_EXACT_ALARM is declared for this clock app.
         private fun scheduleBoundaryRefresh(context: Context, triggerAtMillis: Long?) {
             val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as? AlarmManager ?: return
             val pendingIntent = boundaryRefreshIntent(context)

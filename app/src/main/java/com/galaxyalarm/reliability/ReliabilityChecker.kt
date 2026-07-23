@@ -6,11 +6,13 @@ import com.galaxyalarm.scheduler.NextTriggerCalculator
 const val TITLE_EXACT_ALARM = "正確なアラーム権限"
 const val TITLE_NOTIFICATIONS = "通知権限"
 const val TITLE_BATTERY = "バッテリー最適化の除外"
-const val TITLE_FULL_SCREEN_OPTIONAL = "全画面通知（任意）"
+const val TITLE_FULL_SCREEN = "全画面通知"
 const val TITLE_ENABLED_ALARMS_IN_OFF_GROUPS = "OFFグループ内のONアラーム"
 const val TITLE_FUTURE_SCHEDULES = "有効アラームの未来予約"
 const val TITLE_REQUEST_CODES = "PendingIntent requestCode"
 const val TITLE_TRIGGER_CONSISTENCY = "次回鳴動時刻の整合"
+const val TITLE_DIRECT_BOOT = "再起動後・初回ロック解除前"
+const val TITLE_SYSTEM_RESERVATIONS = "予約用PendingIntent"
 
 data class CheckItem(val title: String, val ok: Boolean, val detail: String)
 
@@ -27,18 +29,23 @@ data class ReliabilityReport(
         items.any { it.title == TITLE_FUTURE_SCHEDULES && !it.ok }
     val hasBlockedEnabledAlarms: Boolean get() =
         items.any { it.title == TITLE_ENABLED_ALARMS_IN_OFF_GROUPS && !it.ok }
+    val hasMissingSystemReservation: Boolean get() =
+        items.any { it.title == TITLE_SYSTEM_RESERVATIONS && !it.ok }
     val hasRepairableScheduleProblem: Boolean get() =
-        hasMissingFutureSchedule || hasBlockedEnabledAlarms
+        hasMissingFutureSchedule || hasBlockedEnabledAlarms || hasMissingSystemReservation
 
     private fun CheckItem.isCritical(): Boolean =
         title in setOf(
             TITLE_EXACT_ALARM,
             TITLE_NOTIFICATIONS,
             TITLE_BATTERY,
+            TITLE_FULL_SCREEN,
             TITLE_ENABLED_ALARMS_IN_OFF_GROUPS,
             TITLE_FUTURE_SCHEDULES,
             TITLE_REQUEST_CODES,
             TITLE_TRIGGER_CONSISTENCY,
+            TITLE_DIRECT_BOOT,
+            TITLE_SYSTEM_RESERVATIONS,
         )
 }
 
@@ -73,20 +80,26 @@ class ReliabilityChecker(
 
         val fsOk = permissions.canUseFullScreenIntent()
         items += CheckItem(
-            TITLE_FULL_SCREEN_OPTIONAL,
-            true,
+            TITLE_FULL_SCREEN,
+            fsOk,
             if (fsOk) {
                 "ON。ロック画面に大きく表示できます。"
             } else {
-                "OFFでも音・バイブ・通知は鳴ります。ロック画面に全画面で出したい時だけONにしてください。"
+                "OFF。ロック画面の全画面操作を出すにはONが必要です。"
             }
         )
 
-        items += CheckItem("起動時 再スケジュール", true, "BOOT_COMPLETED / LOCKED_BOOT_COMPLETED を受信")
-        items += CheckItem("初回ロック解除 再スケジュール", true, "USER_UNLOCKED を受信")
-        items += CheckItem("アプリ更新後 再スケジュール", true, "MY_PACKAGE_REPLACED を受信")
-        items += CheckItem("時刻・タイムゾーン変更対応", true, "TIME_SET / TIMEZONE_CHANGED を受信")
-        items += CheckItem("定期監視", true, "WorkManagerで3時間ごとに確認")
+        val directBootOk = permissions.supportsDirectBoot()
+        items += CheckItem(
+            TITLE_DIRECT_BOOT,
+            directBootOk,
+            if (directBootOk) {
+                "デバイス保護DB・Receiver・Service・発火画面を確認済み" +
+                    if (store.lastSystemEventAt > 0L) " / 最終受信: ${store.lastSystemEvent}" else ""
+            } else {
+                "初回ロック解除前にアラームデータを利用できません"
+            }
+        )
 
         val alarms = repo.getAlarms()
         val groups = repo.getGroups().associateBy { it.id }
@@ -113,6 +126,19 @@ class ReliabilityChecker(
             missing.isEmpty(),
             if (missing.isEmpty()) "${enabledAlarms.size}件すべて予約済み"
             else "${missing.size}件の未来予約が欠落。修復が必要です。"
+        )
+
+        val missingSystemReservations = scheduled
+            .filter { it.triggerAtMillis > now }
+            .filterNot { repo.hasSystemReservation(it) }
+        items += CheckItem(
+            TITLE_SYSTEM_RESERVATIONS,
+            missingSystemReservations.isEmpty(),
+            if (missingSystemReservations.isEmpty()) {
+                "主予約と10秒後の予備予約のPendingIntentを確認済み"
+            } else {
+                "${missingSystemReservations.size}件のOS予約が不足しています"
+            }
         )
 
         val requestCodes = scheduled.map { it.requestCode }

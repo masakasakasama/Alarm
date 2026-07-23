@@ -22,10 +22,12 @@ import com.galaxyalarm.ring.AlarmPlayer
 import com.galaxyalarm.scheduler.AlarmIntents
 import com.galaxyalarm.widget.NextAlarmWidgetProvider
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -43,6 +45,7 @@ class AlarmService : Service() {
     private val handler = Handler(Looper.getMainLooper())
     private val autoStopRunnables = mutableMapOf<Long, Runnable>()
     private val processingOccurrences = mutableSetOf<Long>()
+    private val confirmedOutputOccurrences = mutableSetOf<Long>()
     private var wakeLock: PowerManager.WakeLock? = null
 
     private val container get() = (application as AlarmApplication).container
@@ -52,14 +55,18 @@ class AlarmService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val occurrenceId = intent?.getLongExtra(AlarmIntents.EXTRA_OCCURRENCE_ID, -1) ?: -1
         val isBackupFire = intent?.getBooleanExtra(AlarmIntents.EXTRA_BACKUP_FIRE, false) == true
-        if (intent?.action == AlarmIntents.ACTION_FIRE && isBackupFire && ActiveAlarms.contains(occurrenceId)) {
+        val isRedelivery = flags and START_FLAG_REDELIVERY != 0
+        val outputConfirmed = synchronized(confirmedOutputOccurrences) {
+            occurrenceId in confirmedOutputOccurrences
+        }
+        if (intent?.action == AlarmIntents.ACTION_FIRE && isBackupFire && outputConfirmed) {
             scope.launch { container.scheduler.cancelBackup(occurrenceId) }
             return START_NOT_STICKY
         }
         // startForegroundService の 5 秒制約を満たすため、どのアクションでも即時に前面化。
         startForeground(NotificationHelper.FOREGROUND_ID, notifier.buildLoadingNotification())
         when (intent?.action) {
-            AlarmIntents.ACTION_FIRE -> handleFire(occurrenceId, isBackupFire)
+            AlarmIntents.ACTION_FIRE -> handleFire(occurrenceId, isBackupFire, isRedelivery)
             AlarmIntents.ACTION_STOP -> handleStop(intent.getLongExtra(AlarmIntents.EXTRA_OCCURRENCE_ID, -1))
             AlarmIntents.ACTION_SNOOZE -> handleSnooze(intent.getLongExtra(AlarmIntents.EXTRA_OCCURRENCE_ID, -1))
             AlarmIntents.ACTION_STOP_ALL -> handleStopAll()
@@ -70,7 +77,7 @@ class AlarmService : Service() {
             AlarmIntents.ACTION_TEST_FIRE -> handleTestFire()
             else -> {}
         }
-        return START_NOT_STICKY
+        return if (intent?.action == AlarmIntents.ACTION_FIRE) START_REDELIVER_INTENT else START_NOT_STICKY
     }
 
     private fun acquireWakeLock() {
@@ -81,7 +88,7 @@ class AlarmService : Service() {
         ).apply { acquire(10 * 60 * 1000L) }
     }
 
-    private fun handleFire(occurrenceId: Long, isBackupFire: Boolean) {
+    private fun handleFire(occurrenceId: Long, isBackupFire: Boolean, isRedelivery: Boolean) {
         if (occurrenceId < 0) return
         synchronized(processingOccurrences) {
             if (!processingOccurrences.add(occurrenceId)) return
@@ -92,7 +99,9 @@ class AlarmService : Service() {
             try {
                 val occ = container.db.occurrenceDao().getById(occurrenceId) ?: return@launch
                 val recoveringInterruptedFire =
-                    isBackupFire && occ.status == OccurrenceStatus.FIRED && !ActiveAlarms.contains(occ.id)
+                    (isBackupFire || isRedelivery) &&
+                        occ.status == OccurrenceStatus.FIRED &&
+                        !ActiveAlarms.contains(occ.id)
                 if (occ.status != OccurrenceStatus.SCHEDULED && !recoveringInterruptedFire) return@launch
                 val alarm = container.db.alarmDao().getById(occ.alarmId) ?: return@launch
                 val group = container.db.groupDao().getById(alarm.groupId) ?: return@launch
@@ -104,8 +113,7 @@ class AlarmService : Service() {
                 val ampm = if (alarm.hour < 12) "AM" else "PM"
                 val timeText = String.format(Locale.JAPAN, "%d:%02d %s", h12, alarm.minute, ampm)
 
-                // Commit FIRED only after the notification and output have started. If the
-                // process dies before this completes, the delayed backup can retry safely.
+                val outputResult = CompletableDeferred<Boolean>()
                 withContext(Dispatchers.Main.immediate) {
                     ActiveAlarms.push(ActiveAlarm(occ.id, alarm.id, alarm.label, timeText))
                     startForeground(
@@ -119,12 +127,45 @@ class AlarmService : Service() {
                         alarm.vibrationEnabled,
                         alarm.vibrationPattern,
                         globalPrefs.fadeInSeconds,
-                        globalPrefs.fadeInStartVolume
+                        globalPrefs.fadeInStartVolume,
+                        onOutputStarted = { outputResult.complete(true) },
+                        onOutputFailed = { outputResult.complete(false) },
                     )
                     if (shouldLaunchFullScreen()) launchRingActivity(occ.id, alarm.id)
                     scheduleAutoStop(occ.id, alarm.autoStopMinutes)
-                    ringingStarted = true
                 }
+
+                val outputStarted = withTimeoutOrNull(OUTPUT_START_TIMEOUT_MS) {
+                    outputResult.await()
+                } == true
+                if (!outputStarted) {
+                    Log.e(TAG, "no alarm output started for occurrence $occurrenceId")
+                    withContext(Dispatchers.Main.immediate) {
+                        stopOne(occ.id)
+                    }
+                    if (isBackupFire) {
+                        val failedAt = System.currentTimeMillis()
+                        container.db.occurrenceDao().setStatus(occ.id, OccurrenceStatus.FAILED, failedAt)
+                        runCatching {
+                            container.repository.log(
+                                AlarmEventLog(
+                                    alarmId = alarm.id,
+                                    groupId = alarm.groupId,
+                                    scheduledAtMillis = occ.triggerAtMillis,
+                                    firedAtMillis = failedAt,
+                                    delayMs = failedAt - occ.triggerAtMillis,
+                                    result = EventResult.MISSED,
+                                    message = "音とバイブの開始に失敗"
+                                )
+                            )
+                        }
+                    }
+                    return@launch
+                }
+                synchronized(confirmedOutputOccurrences) {
+                    confirmedOutputOccurrences.add(occ.id)
+                }
+                ringingStarted = true
 
                 val now = System.currentTimeMillis()
                 container.db.occurrenceDao().setStatus(occ.id, OccurrenceStatus.FIRED, now)
@@ -149,6 +190,25 @@ class AlarmService : Service() {
                 }.onFailure { Log.e(TAG, "failed to write fire log", it) }
             } catch (error: Exception) {
                 Log.e(TAG, "alarm fire failed for occurrence $occurrenceId", error)
+                if (isBackupFire && !ringingStarted) {
+                    withContext(Dispatchers.Main.immediate) {
+                        val emergency = ActiveAlarm(occurrenceId, -1L, "アラーム", "")
+                        ActiveAlarms.push(emergency)
+                        startForeground(
+                            NotificationHelper.FOREGROUND_ID,
+                            notifier.buildAlarmNotification(occurrenceId, -1L, emergency.label, emergency.timeText)
+                        )
+                        player.start(
+                            com.galaxyalarm.data.model.SoundMode.VIBRATE_ONLY,
+                            null,
+                            true,
+                            com.galaxyalarm.data.model.VibrationPattern.LONG,
+                        )
+                        if (shouldLaunchFullScreen()) launchRingActivity(occurrenceId, -1L)
+                        scheduleAutoStop(occurrenceId, 1)
+                        ringingStarted = true
+                    }
+                }
             } finally {
                 synchronized(processingOccurrences) { processingOccurrences.remove(occurrenceId) }
                 if (!ringingStarted) handler.post { finishIfIdle() }
@@ -296,6 +356,9 @@ class AlarmService : Service() {
     private fun stopOne(occurrenceId: Long) {
         handler.post {
             autoStopRunnables.remove(occurrenceId)?.let { handler.removeCallbacks(it) }
+            synchronized(confirmedOutputOccurrences) {
+                confirmedOutputOccurrences.remove(occurrenceId)
+            }
             ActiveAlarms.remove(occurrenceId)
             val top = ActiveAlarms.top()
             if (top == null) {
@@ -326,6 +389,7 @@ class AlarmService : Service() {
             withContext(Dispatchers.Main.immediate) {
                 autoStopRunnables.values.forEach { handler.removeCallbacks(it) }
                 autoStopRunnables.clear()
+                synchronized(confirmedOutputOccurrences) { confirmedOutputOccurrences.clear() }
                 ActiveAlarms.clear()
                 finishService()
             }
@@ -349,6 +413,7 @@ class AlarmService : Service() {
         super.onDestroy()
         autoStopRunnables.values.forEach { handler.removeCallbacks(it) }
         autoStopRunnables.clear()
+        synchronized(confirmedOutputOccurrences) { confirmedOutputOccurrences.clear() }
         ActiveAlarms.clear()
         player.stop()
         wakeLock?.let { if (it.isHeld) it.release() }
@@ -357,6 +422,7 @@ class AlarmService : Service() {
     companion object {
         private const val TAG = "AlarmService"
         private const val TEST_OCCURRENCE_ID = -2000L
+        private const val OUTPUT_START_TIMEOUT_MS = 8_000L
         private val timeFmt = SimpleDateFormat("HH:mm", Locale.JAPAN)
         fun fmt(t: Long) = timeFmt.format(Date(t))
     }
