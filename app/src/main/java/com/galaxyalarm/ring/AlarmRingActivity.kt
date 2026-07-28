@@ -3,7 +3,9 @@ package com.galaxyalarm.ring
 import android.content.Intent
 import android.os.Build
 import android.os.Bundle
+import android.view.KeyEvent
 import android.view.WindowManager
+import androidx.activity.OnBackPressedCallback
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.Arrangement
@@ -37,21 +39,22 @@ import com.galaxyalarm.ui.theme.Danger
 import com.galaxyalarm.ui.theme.GalaxyAlarmTheme
 
 /**
- * 全画面アラーム画面。ロック画面上でも表示。複数同時鳴動はスタックで列挙。
- * 1件停止しても他は止めない。「すべて停止」は別ボタン。
+ * 全画面アラーム画面。ロック画面上でも表示し、停止はすべての鳴動へ即時適用する。
  */
 class AlarmRingActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         showOverLockscreen()
+        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() = stopAllAndClose()
+        })
         setContent {
             GalaxyAlarmTheme {
                 Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
                     RingContent(
-                        onStop = { sendAction(AlarmIntents.ACTION_STOP, it) },
                         onSnooze = { sendAction(AlarmIntents.ACTION_SNOOZE, it) },
-                        onStopAll = { sendStopAll() },
+                        onStopAll = { stopAllAndClose() },
                         onEmpty = { finish() }
                     )
                 }
@@ -87,15 +90,31 @@ class AlarmRingActivity : ComponentActivity() {
     }
 
     private fun sendStopAll() {
-        sendBroadcast(Intent(this, AlarmReceiver::class.java).apply {
-            action = AlarmIntents.ACTION_STOP_ALL
-        })
+        AlarmStopController.stopAllNow(
+            this,
+            intent.getLongExtra(AlarmIntents.EXTRA_OCCURRENCE_ID, -1L),
+        )
+    }
+
+    private fun stopAllAndClose() {
+        sendStopAll()
+        finishAndRemoveTask()
+    }
+
+    override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
+        if (
+            keyCode == KeyEvent.KEYCODE_VOLUME_UP ||
+            keyCode == KeyEvent.KEYCODE_VOLUME_DOWN
+        ) {
+            stopAllAndClose()
+            return true
+        }
+        return super.onKeyDown(keyCode, event)
     }
 }
 
 @Composable
 private fun RingContent(
-    onStop: (Long) -> Unit,
     onSnooze: (Long) -> Unit,
     onStopAll: () -> Unit,
     onEmpty: () -> Unit,
@@ -126,20 +145,19 @@ private fun RingContent(
                         style = MaterialTheme.typography.titleLarge,
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Spacer(Modifier.height(10.dp))
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Button(onClick = { onStop(a.occurrenceId) }, modifier = Modifier.weight(1f)) { Text("停止") }
-                        OutlinedButton(onClick = { onSnooze(a.occurrenceId) }, modifier = Modifier.weight(1f)) { Text("スヌーズ") }
-                    }
+                    OutlinedButton(
+                        onClick = { onSnooze(a.occurrenceId) },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) { Text("スヌーズ") }
                 }
             }
         }
 
-        if (stack.size > 1) {
-            Button(
-                onClick = onStopAll, modifier = Modifier.fillMaxWidth(),
-                colors = ButtonDefaults.buttonColors(containerColor = Danger)
-            ) { Text("すべて停止") }
-        }
+        Button(
+            onClick = onStopAll,
+            modifier = Modifier.fillMaxWidth(),
+            colors = ButtonDefaults.buttonColors(containerColor = Danger),
+        ) { Text(if (stack.size > 1) "すべて停止" else "停止") }
         Spacer(Modifier.height(12.dp))
     }
 }

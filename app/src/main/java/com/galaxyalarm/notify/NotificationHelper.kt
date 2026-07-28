@@ -165,7 +165,7 @@ class NotificationHelper(private val context: Context) {
             context,
             100_000_000 + occurrenceId.toInt(),
             Intent(context, AlarmReceiver::class.java).apply {
-                action = AlarmIntents.ACTION_STOP
+                action = AlarmIntents.ACTION_STOP_ALL
                 putExtra(AlarmIntents.EXTRA_OCCURRENCE_ID, occurrenceId)
             },
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE

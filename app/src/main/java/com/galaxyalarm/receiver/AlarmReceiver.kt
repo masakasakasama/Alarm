@@ -2,6 +2,7 @@ package com.galaxyalarm.receiver
 
 import android.annotation.SuppressLint
 import android.app.AlarmManager
+import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.BroadcastReceiver
 import android.content.Context
@@ -12,6 +13,12 @@ import android.os.VibrationAttributes
 import android.os.Vibrator
 import android.os.VibratorManager
 import android.util.Log
+import com.galaxyalarm.notify.NotificationHelper
+import com.galaxyalarm.ring.ActiveAlarm
+import com.galaxyalarm.ring.ActiveAlarms
+import com.galaxyalarm.ring.AlarmDismissalStore
+import com.galaxyalarm.ring.AlarmRingActivity
+import com.galaxyalarm.ring.AlarmStopController
 import com.galaxyalarm.scheduler.AlarmIntents
 import com.galaxyalarm.service.AlarmService
 
@@ -30,6 +37,23 @@ class AlarmReceiver : BroadcastReceiver() {
                 runCatching { com.galaxyalarm.timer.TimerController.cancel(context, timerId) }
             }
             return
+        }
+        val occurrenceId = intent.getLongExtra(AlarmIntents.EXTRA_OCCURRENCE_ID, -1L)
+        if (action == AlarmIntents.ACTION_STOP || action == AlarmIntents.ACTION_STOP_ALL) {
+            AlarmStopController.stopAllNow(context, occurrenceId)
+            return
+        }
+        val dismissalStore = AlarmDismissalStore(context)
+        if (
+            (action == AlarmIntents.ACTION_FIRE || action == AlarmIntents.ACTION_FIRE_BACKUP) &&
+            occurrenceId >= 0L &&
+            dismissalStore.isDismissed(occurrenceId)
+        ) {
+            Log.i(TAG, "ignored dismissed occurrence: $occurrenceId")
+            return
+        }
+        if (action == AlarmIntents.ACTION_SNOOZE && occurrenceId >= 0L) {
+            dismissalStore.markDismissed(listOf(occurrenceId))
         }
         val serviceIntent = Intent(context, AlarmService::class.java).apply {
             this.action = if (action == AlarmIntents.ACTION_FIRE_BACKUP) {
@@ -81,6 +105,30 @@ class AlarmReceiver : BroadcastReceiver() {
                 .onFailure { Log.e(TAG, "failed to schedule AlarmService retry", it) }
         }
 
+        if (occurrenceId >= 0L && AlarmDismissalStore(context).isDismissed(occurrenceId)) return
+        if (occurrenceId >= 0L) {
+            val active = ActiveAlarm(occurrenceId, -1L, "アラーム", "")
+            ActiveAlarms.push(active)
+            runCatching {
+                context.getSystemService(NotificationManager::class.java).notify(
+                    NotificationHelper.FOREGROUND_ID,
+                    NotificationHelper(context).buildAlarmNotification(
+                        occurrenceId,
+                        -1L,
+                        active.label,
+                        active.timeText,
+                    )
+                )
+            }
+            runCatching {
+                context.startActivity(
+                    Intent(context, AlarmRingActivity::class.java).apply {
+                        flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+                        putExtra(AlarmIntents.EXTRA_OCCURRENCE_ID, occurrenceId)
+                    }
+                )
+            }
+        }
         runCatching {
             val vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                 context.getSystemService(VibratorManager::class.java).defaultVibrator

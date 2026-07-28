@@ -18,7 +18,9 @@ import com.galaxyalarm.notify.NotificationHelper
 import com.galaxyalarm.prefs.GlobalAlarmPrefs
 import com.galaxyalarm.ring.ActiveAlarm
 import com.galaxyalarm.ring.ActiveAlarms
+import com.galaxyalarm.ring.AlarmDismissalStore
 import com.galaxyalarm.ring.AlarmPlayer
+import com.galaxyalarm.ring.AlarmStopController
 import com.galaxyalarm.scheduler.AlarmIntents
 import com.galaxyalarm.widget.NextAlarmWidgetProvider
 import kotlinx.coroutines.CoroutineScope
@@ -34,18 +36,20 @@ import java.util.Locale
 
 /**
  * 鳴動中の Foreground Service。スタックで複数同時鳴動を管理し、
- * 音/バイブ/通知/自動停止を制御する。1件停止しても他は止めない。
+ * 音/バイブ/通知/自動停止を制御する。停止命令はすべての鳴動より優先する。
  */
 class AlarmService : Service() {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val player by lazy { AlarmPlayer(this) }
+    private val dismissalStore by lazy { AlarmDismissalStore(this) }
     private val globalPrefs by lazy { GlobalAlarmPrefs(this) }
     private val notifier by lazy { NotificationHelper(this) }
     private val handler = Handler(Looper.getMainLooper())
     private val autoStopRunnables = mutableMapOf<Long, Runnable>()
     private val processingOccurrences = mutableSetOf<Long>()
     private val confirmedOutputOccurrences = mutableSetOf<Long>()
+    @Volatile private var stopping = false
     private var wakeLock: PowerManager.WakeLock? = null
 
     private val container get() = (application as AlarmApplication).container
@@ -56,6 +60,12 @@ class AlarmService : Service() {
         val occurrenceId = intent?.getLongExtra(AlarmIntents.EXTRA_OCCURRENCE_ID, -1) ?: -1
         val isBackupFire = intent?.getBooleanExtra(AlarmIntents.EXTRA_BACKUP_FIRE, false) == true
         val isRedelivery = flags and START_FLAG_REDELIVERY != 0
+        if (intent?.action == AlarmIntents.ACTION_FIRE && isBlocked(occurrenceId)) {
+            startForeground(NotificationHelper.FOREGROUND_ID, notifier.buildLoadingNotification())
+            scope.launch { runCatching { container.scheduler.cancelBackup(occurrenceId) } }
+            handler.post { finishIfIdle() }
+            return START_NOT_STICKY
+        }
         val outputConfirmed = synchronized(confirmedOutputOccurrences) {
             occurrenceId in confirmedOutputOccurrences
         }
@@ -89,7 +99,7 @@ class AlarmService : Service() {
     }
 
     private fun handleFire(occurrenceId: Long, isBackupFire: Boolean, isRedelivery: Boolean) {
-        if (occurrenceId < 0) return
+        if (occurrenceId < 0 || isBlocked(occurrenceId)) return
         synchronized(processingOccurrences) {
             if (!processingOccurrences.add(occurrenceId)) return
         }
@@ -97,7 +107,9 @@ class AlarmService : Service() {
         scope.launch {
             var ringingStarted = false
             try {
+                if (isBlocked(occurrenceId)) return@launch
                 val occ = container.db.occurrenceDao().getById(occurrenceId) ?: return@launch
+                if (isBlocked(occurrenceId)) return@launch
                 val recoveringInterruptedFire =
                     (isBackupFire || isRedelivery) &&
                         occ.status == OccurrenceStatus.FIRED &&
@@ -114,30 +126,41 @@ class AlarmService : Service() {
                 val timeText = String.format(Locale.JAPAN, "%d:%02d %s", h12, alarm.minute, ampm)
 
                 val outputResult = CompletableDeferred<Boolean>()
-                withContext(Dispatchers.Main.immediate) {
-                    ActiveAlarms.push(ActiveAlarm(occ.id, alarm.id, alarm.label, timeText))
-                    startForeground(
-                        NotificationHelper.FOREGROUND_ID,
-                        notifier.buildAlarmNotification(occ.id, alarm.id, alarm.label, timeText)
-                    )
-                    player.stop()
-                    player.start(
-                        alarm.soundMode,
-                        alarm.ringtoneUri,
-                        alarm.vibrationEnabled,
-                        alarm.vibrationPattern,
-                        globalPrefs.fadeInSeconds,
-                        globalPrefs.fadeInStartVolume,
-                        onOutputStarted = { outputResult.complete(true) },
-                        onOutputFailed = { outputResult.complete(false) },
-                    )
-                    if (shouldLaunchFullScreen()) launchRingActivity(occ.id, alarm.id)
-                    scheduleAutoStop(occ.id, alarm.autoStopMinutes)
+                val outputRequested = withContext(Dispatchers.Main.immediate) {
+                    if (isBlocked(occ.id)) {
+                        false
+                    } else {
+                        ActiveAlarms.push(ActiveAlarm(occ.id, alarm.id, alarm.label, timeText))
+                        startForeground(
+                            NotificationHelper.FOREGROUND_ID,
+                            notifier.buildAlarmNotification(occ.id, alarm.id, alarm.label, timeText)
+                        )
+                        player.stop()
+                        player.start(
+                            alarm.soundMode,
+                            alarm.ringtoneUri,
+                            alarm.vibrationEnabled,
+                            alarm.vibrationPattern,
+                            globalPrefs.fadeInSeconds,
+                            globalPrefs.fadeInStartVolume,
+                            onOutputStarted = { outputResult.complete(true) },
+                            onOutputFailed = { outputResult.complete(false) },
+                        )
+                        if (shouldLaunchFullScreen()) launchRingActivity(occ.id, alarm.id)
+                        scheduleAutoStop(occ.id, alarm.autoStopMinutes)
+                        true
+                    }
                 }
+                if (!outputRequested) return@launch
 
                 val outputStarted = withTimeoutOrNull(OUTPUT_START_TIMEOUT_MS) {
                     outputResult.await()
                 } == true
+                if (isBlocked(occ.id)) {
+                    withContext(Dispatchers.Main.immediate) { stopOne(occ.id) }
+                    runCatching { container.scheduler.cancelBackup(occ.id) }
+                    return@launch
+                }
                 if (!outputStarted) {
                     Log.e(TAG, "no alarm output started for occurrence $occurrenceId")
                     withContext(Dispatchers.Main.immediate) {
@@ -190,7 +213,7 @@ class AlarmService : Service() {
                 }.onFailure { Log.e(TAG, "failed to write fire log", it) }
             } catch (error: Exception) {
                 Log.e(TAG, "alarm fire failed for occurrence $occurrenceId", error)
-                if (isBackupFire && !ringingStarted) {
+                if (isBackupFire && !ringingStarted && !isBlocked(occurrenceId)) {
                     withContext(Dispatchers.Main.immediate) {
                         val emergency = ActiveAlarm(occurrenceId, -1L, "アラーム", "")
                         ActiveAlarms.push(emergency)
@@ -241,8 +264,10 @@ class AlarmService : Service() {
         timeText: String,
         soundMode: com.galaxyalarm.data.model.SoundMode,
     ) {
+        if (stopping || dismissalStore.isDismissed(id)) return
         acquireWakeLock()
         handler.post {
+            if (stopping || dismissalStore.isDismissed(id)) return@post
             ActiveAlarms.push(ActiveAlarm(id, -1L, label, timeText))
             startForeground(
                 NotificationHelper.FOREGROUND_ID,
@@ -305,21 +330,7 @@ class AlarmService : Service() {
     }
 
     private fun handleStop(occurrenceId: Long) {
-        scope.launch {
-            try {
-                container.scheduler.cancelBackup(occurrenceId)
-                val occ = container.db.occurrenceDao().getById(occurrenceId)
-                container.repository.log(
-                    AlarmEventLog(
-                        alarmId = occ?.alarmId, groupId = occ?.groupId,
-                        scheduledAtMillis = occ?.triggerAtMillis, firedAtMillis = null, delayMs = null,
-                        result = EventResult.DISMISSED, message = "停止"
-                    )
-                )
-            } finally {
-                withContext(Dispatchers.Main.immediate) { stopOne(occurrenceId) }
-            }
-        }
+        AlarmStopController.stopAllNow(this, occurrenceId)
     }
 
     private fun handleSnooze(occurrenceId: Long) {
@@ -383,20 +394,11 @@ class AlarmService : Service() {
     }
 
     private fun handleStopAll() {
-        val occurrenceIds = ActiveAlarms.stack.value.map { it.occurrenceId }
-        scope.launch {
-            occurrenceIds.forEach { container.scheduler.cancelBackup(it) }
-            withContext(Dispatchers.Main.immediate) {
-                autoStopRunnables.values.forEach { handler.removeCallbacks(it) }
-                autoStopRunnables.clear()
-                synchronized(confirmedOutputOccurrences) { confirmedOutputOccurrences.clear() }
-                ActiveAlarms.clear()
-                finishService()
-            }
-        }
+        AlarmStopController.stopAllNow(this)
     }
 
     private fun finishService() {
+        stopping = true
         player.stop()
         getSystemService(NotificationManager::class.java).cancel(NotificationHelper.FOREGROUND_ID)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
@@ -410,6 +412,7 @@ class AlarmService : Service() {
     }
 
     override fun onDestroy() {
+        stopping = true
         super.onDestroy()
         autoStopRunnables.values.forEach { handler.removeCallbacks(it) }
         autoStopRunnables.clear()
@@ -418,6 +421,9 @@ class AlarmService : Service() {
         player.stop()
         wakeLock?.let { if (it.isHeld) it.release() }
     }
+
+    private fun isBlocked(occurrenceId: Long): Boolean =
+        stopping || dismissalStore.isDismissed(occurrenceId)
 
     companion object {
         private const val TAG = "AlarmService"

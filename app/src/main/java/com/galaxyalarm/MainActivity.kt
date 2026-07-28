@@ -4,20 +4,35 @@ import android.Manifest
 import android.content.Intent
 import android.os.Build
 import android.os.Bundle
+import android.view.KeyEvent
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.dp
+import com.galaxyalarm.ring.ActiveAlarms
+import com.galaxyalarm.ring.AlarmStopController
 import com.galaxyalarm.ui.AppNavigation
+import com.galaxyalarm.ui.theme.Danger
 import com.galaxyalarm.ui.theme.GalaxyAlarmTheme
 import com.galaxyalarm.update.AutoUpdateInstaller
 import com.galaxyalarm.update.UpdateChecker
@@ -36,8 +51,13 @@ class MainActivity : ComponentActivity() {
         requestNotificationPermissionIfNeeded()
         setContent {
             GalaxyAlarmTheme {
-                Surface(Modifier.fillMaxSize()) { AppNavigation(editAlarmRequest.value) }
-                StartupAutoUpdate()
+                Surface(Modifier.fillMaxSize()) {
+                    Box(Modifier.fillMaxSize()) {
+                        AppNavigation(editAlarmRequest.value)
+                        ActiveAlarmStopButton()
+                        StartupAutoUpdate()
+                    }
+                }
             }
         }
     }
@@ -59,6 +79,18 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
+        if (
+            ActiveAlarms.stack.value.isNotEmpty() &&
+            (keyCode == KeyEvent.KEYCODE_VOLUME_UP ||
+                keyCode == KeyEvent.KEYCODE_VOLUME_DOWN)
+        ) {
+            AlarmStopController.stopAllNow(this)
+            return true
+        }
+        return super.onKeyDown(keyCode, event)
+    }
+
     private fun requestNotificationPermissionIfNeeded() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             notifPermLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
@@ -70,6 +102,25 @@ class MainActivity : ComponentActivity() {
 
     companion object {
         const val EXTRA_OPEN_ALARM_ID = "com.galaxyalarm.extra.OPEN_ALARM_ID"
+    }
+}
+
+@Composable
+private fun BoxScope.ActiveAlarmStopButton() {
+    val context = LocalContext.current
+    val active by ActiveAlarms.stack.collectAsState()
+    if (active.isEmpty()) return
+
+    Button(
+        onClick = { AlarmStopController.stopAllNow(context) },
+        modifier = Modifier
+            .align(Alignment.TopCenter)
+            .statusBarsPadding()
+            .padding(16.dp)
+            .fillMaxWidth(),
+        colors = ButtonDefaults.buttonColors(containerColor = Danger),
+    ) {
+        Text(if (active.size > 1) "鳴動中のアラームをすべて停止" else "鳴動中のアラームを停止")
     }
 }
 
