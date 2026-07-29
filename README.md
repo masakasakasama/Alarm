@@ -75,6 +75,7 @@ sdk.dir=/path/to/Android/sdk
   アンインストール不要。
 - 新しい APK を入れるだけ。データ(Room DB)は保持されます。
 - アプリ内「設定 → アプリ更新 → 更新を確認」で、GitHub Releases の最新版を確認できます(APIキー不要)。
+- Android 14以降は更新セッションに全画面通知権限を明示して保持し、OEMが保持しなかった場合は更新後の初回起動で専用設定を開きます。
 - **更新できない典型原因**(`handoff.md` にも記載):
   - 署名キーが異なる → 旧版をアンインストールしてから入れ直す。
   - `applicationId` が違う(debug ビルドは `com.galaxyalarm.debug`)→ release 同士で更新する。

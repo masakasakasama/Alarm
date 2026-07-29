@@ -36,18 +36,23 @@ object SystemSettings {
      * Android 14+ の「フルスクリーン通知」専用設定へ。
      * 一般の通知許可とは別物で、ここをONにしないとロック画面で全画面表示できない。
      */
-    fun openFullScreenIntentSettings(context: Context) {
+    fun openFullScreenIntentSettings(context: Context): Boolean {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-            runCatching {
+            return runCatching {
                 context.startActivity(
                     Intent(Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT)
                         .setData(Uri.parse("package:${context.packageName}"))
                         .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 )
-            }.onFailure { openNotificationSettings(context) }
+                true
+            }.getOrElse {
+                openNotificationSettings(context)
+                false
+            }
         } else {
             // 14未満はフルスクリーン通知に個別許可は不要。通知設定へ。
             openNotificationSettings(context)
+            return true
         }
     }
 

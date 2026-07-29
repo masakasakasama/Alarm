@@ -9,6 +9,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.fillMaxSize
@@ -32,17 +33,24 @@ import androidx.compose.ui.unit.dp
 import com.galaxyalarm.ring.ActiveAlarms
 import com.galaxyalarm.ring.AlarmStopController
 import com.galaxyalarm.ui.AppNavigation
+import com.galaxyalarm.ui.SystemSettings
 import com.galaxyalarm.ui.theme.Danger
 import com.galaxyalarm.ui.theme.GalaxyAlarmTheme
 import com.galaxyalarm.update.AutoUpdateInstaller
 import com.galaxyalarm.update.UpdateChecker
+import com.galaxyalarm.update.UpdatePermissionRecovery
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
     private val editAlarmRequest = mutableStateOf<Long?>(null)
+    private var notificationPermissionResolved = Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU
+    private var fullScreenRecoveryInFlight = false
 
     private val notifPermLauncher =
-        registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) {
+            notificationPermissionResolved = true
+            maybeRecoverFullScreenPermission()
+        }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -70,6 +78,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        maybeRecoverFullScreenPermission()
         val app = application as AlarmApplication
         val container = app.container
         if (container.permissions.canScheduleExactAlarms()) {
@@ -93,7 +102,30 @@ class MainActivity : ComponentActivity() {
 
     private fun requestNotificationPermissionIfNeeded() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            notifPermLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+            if (
+                ContextCompat.checkSelfPermission(
+                    this,
+                    Manifest.permission.POST_NOTIFICATIONS,
+                ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+            ) {
+                notificationPermissionResolved = true
+            } else {
+                notifPermLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+            }
+        }
+    }
+
+    private fun maybeRecoverFullScreenPermission() {
+        if (!notificationPermissionResolved || fullScreenRecoveryInFlight) return
+        if (!UpdatePermissionRecovery.shouldOpenFullScreenSettings(this)) {
+            UpdatePermissionRecovery.markFullScreenRecoveryHandled(this)
+            return
+        }
+        fullScreenRecoveryInFlight = true
+        if (SystemSettings.openFullScreenIntentSettings(this)) {
+            UpdatePermissionRecovery.markFullScreenRecoveryHandled(this)
+        } else {
+            fullScreenRecoveryInFlight = false
         }
     }
 
