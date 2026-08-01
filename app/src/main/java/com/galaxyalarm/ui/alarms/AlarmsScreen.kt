@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -44,6 +45,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -92,34 +94,18 @@ fun AlarmsScreen(
     var deleteTarget by remember { mutableStateOf<AlarmRow?>(null) }
     val allEnabled = rows.isNotEmpty() && rows.all { it.alarm.enabled }
 
-    LazyColumn(
-        Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
-        contentPadding = PaddingValues(vertical = 16.dp)
+    AlarmListLayout(
+        header = {
+            AlarmListHeader(
+                title = selectedGroup?.name ?: "アラーム",
+                subtitle = if (showingGroup) null else "グループなしのアラーム",
+                allEnabled = allEnabled,
+                showEnableSwitch = rows.isNotEmpty(),
+                onToggleAll = { vm.toggleAllAlarms(rows, it) },
+                onAddAlarm = onAddAlarm,
+            )
+        },
     ) {
-        item {
-            Row(
-                Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column {
-                    Text(selectedGroup?.name ?: "アラーム", style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
-                    if (!showingGroup) {
-                        Text("グループなしのアラーム", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                }
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    if (rows.isNotEmpty()) {
-                        Switch(
-                            checked = allEnabled,
-                            onCheckedChange = { vm.toggleAllAlarms(rows, it) },
-                        )
-                    }
-                    TextButton(onClick = onAddAlarm) { Text("+ 追加") }
-                }
-            }
-        }
 
         // トップレベル表示のときは現在時刻+次のアラームを上部に出す(旧・時計タブの内容)。
         if (!showingGroup) {
@@ -221,6 +207,67 @@ fun AlarmsScreen(
             },
             onDismiss = { deleteTarget = null },
         )
+    }
+}
+
+@Composable
+fun AlarmListLayout(
+    header: @Composable () -> Unit,
+    content: LazyListScope.() -> Unit,
+) {
+    Column(Modifier.fillMaxSize()) {
+        header()
+        LazyColumn(
+            Modifier
+                .fillMaxWidth()
+                .weight(1f)
+                .padding(horizontal = 16.dp)
+                .testTag("alarm_scroll_content"),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+            contentPadding = PaddingValues(top = 8.dp, bottom = 16.dp),
+            content = content,
+        )
+    }
+}
+
+@Composable
+fun AlarmListHeader(
+    title: String,
+    subtitle: String?,
+    allEnabled: Boolean,
+    showEnableSwitch: Boolean,
+    onToggleAll: (Boolean) -> Unit,
+    onAddAlarm: () -> Unit,
+) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 12.dp)
+            .testTag("alarm_fixed_header"),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(
+                title,
+                style = MaterialTheme.typography.headlineLarge,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            subtitle?.let {
+                Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            if (showEnableSwitch) {
+                Switch(
+                    checked = allEnabled,
+                    onCheckedChange = onToggleAll,
+                )
+            }
+            TextButton(onClick = onAddAlarm) { Text("+ 追加") }
+        }
     }
 }
 
