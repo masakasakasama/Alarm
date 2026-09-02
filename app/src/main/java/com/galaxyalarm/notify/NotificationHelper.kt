@@ -7,6 +7,7 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.graphics.Color
+import android.net.Uri
 import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationCompat.Action
@@ -150,16 +151,24 @@ class NotificationHelper(private val context: Context) {
         label: String,
         timeText: String,
     ): Notification {
-        val fullScreenIntent = Intent(context, AlarmRingActivity::class.java).apply {
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+        // PendingIntent は requestCode だけでなく data URI も occurrence ごとに一意化する。
+        // FLAG_CANCEL_CURRENT で古い PendingIntent を確実に破棄し、通知タップ時の stale intent を防ぐ。
+        val openIntent = Intent(context, AlarmRingActivity::class.java).apply {
+            action = ACTION_OPEN_ALARM_RING
+            data = Uri.parse("galaxyalarm://ring/$occurrenceId")
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or
+                Intent.FLAG_ACTIVITY_CLEAR_TOP or
+                Intent.FLAG_ACTIVITY_SINGLE_TOP
             putExtra(AlarmIntents.EXTRA_OCCURRENCE_ID, occurrenceId)
             putExtra(AlarmIntents.EXTRA_ALARM_ID, alarmId)
+            putExtra(EXTRA_ALARM_LABEL, label)
+            putExtra(EXTRA_ALARM_TIME_TEXT, timeText)
         }
         val fullScreenPi = PendingIntent.getActivity(
             context,
-            occurrenceId.toInt(),
-            fullScreenIntent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            occurrenceRequestCode(occurrenceId),
+            openIntent,
+            PendingIntent.FLAG_CANCEL_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
         val stopPi = PendingIntent.getBroadcast(
             context,
@@ -217,6 +226,9 @@ class NotificationHelper(private val context: Context) {
             .build()
     }
 
+    private fun occurrenceRequestCode(occurrenceId: Long): Int =
+        (occurrenceId xor (occurrenceId ushr 32)).toInt()
+
     companion object {
         const val CHANNEL_ALARM = "alarm_ring"
         const val CHANNEL_SERVICE = "alarm_service"
@@ -226,6 +238,9 @@ class NotificationHelper(private val context: Context) {
         const val FOREGROUND_ID = 42
         const val RELIABILITY_ALERT_ID = 43
         const val TIMER_ID_BASE = 44
+        const val ACTION_OPEN_ALARM_RING = "com.galaxyalarm.action.OPEN_ALARM_RING"
+        const val EXTRA_ALARM_LABEL = "extra_alarm_label"
+        const val EXTRA_ALARM_TIME_TEXT = "extra_alarm_time_text"
         private const val OBSOLETE_NEXT_ALARM_STATUS_ID = 45
     }
 }
