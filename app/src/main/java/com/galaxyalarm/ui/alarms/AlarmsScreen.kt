@@ -18,7 +18,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
-import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -57,18 +56,19 @@ import com.galaxyalarm.data.repo.AlarmRepository
 import com.galaxyalarm.ui.AlarmRow
 import com.galaxyalarm.ui.GroupRow
 import com.galaxyalarm.ui.MainViewModel
+import com.galaxyalarm.ui.TimeFormat
 import com.galaxyalarm.ui.clock.NextAlarmCard
 import com.galaxyalarm.ui.clock.NowCard
 import com.galaxyalarm.ui.clock.RunningTimerCard
 import com.galaxyalarm.ui.clock.WorldClockCard
-import com.galaxyalarm.ui.TimeFormat
-import com.galaxyalarm.ui.components.PillLevel
 import com.galaxyalarm.ui.components.ConfirmAlarmDeleteDialog
+import com.galaxyalarm.ui.components.PillLevel
 import com.galaxyalarm.ui.components.SectionCard
 import com.galaxyalarm.ui.components.StatusPill
 
 private val AmColor = Color(0xFF80DEEA)   // シアン (朝)
 private val PmColor = Color(0xFFCE93D8)   // ラベンダー (午後)
+private const val GROUPS_PER_ROW = 3
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -330,48 +330,81 @@ private fun GroupStrip(
     onOpenGroup: (Long) -> Unit,
     onToggle: (com.galaxyalarm.data.entity.AlarmGroup, Boolean) -> Unit,
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
         Text("グループ", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            items(rows, key = { it.group.id }) { row ->
-                Card(
-                    onClick = { onOpenGroup(row.group.id) },
-                    shape = RoundedCornerShape(16.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                    modifier = Modifier.width(130.dp)
-                ) {
-                    Column(Modifier.padding(horizontal = 12.dp, vertical = 10.dp)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(
-                                row.group.name,
-                                style = MaterialTheme.typography.titleSmall,
-                                fontWeight = FontWeight.Bold,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.weight(1f)
-                            )
-                            Box(Modifier.requiredSize(36.dp).wrapContentSize(Alignment.Center)) {
-                                Switch(
-                                    checked = row.isOn,
-                                    onCheckedChange = { onToggle(row.group, it) },
-                                    modifier = Modifier.scale(0.6f)
-                                )
-                            }
-                        }
-                        Text(
-                            "有効 ${row.enabledCount} / 全 ${row.totalCount}",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        Text(
-                            TimeFormat.nextTrigger(row.nextTriggerAt),
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.primary,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
+        rows.chunked(GROUPS_PER_ROW).forEach { groupRow ->
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                groupRow.forEach { row ->
+                    CompactGroupCard(
+                        row = row,
+                        onOpenGroup = onOpenGroup,
+                        onToggle = onToggle,
+                        modifier = Modifier.weight(1f),
+                    )
                 }
+                repeat(GROUPS_PER_ROW - groupRow.size) {
+                    Spacer(Modifier.weight(1f))
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CompactGroupCard(
+    row: GroupRow,
+    onOpenGroup: (Long) -> Unit,
+    onToggle: (com.galaxyalarm.data.entity.AlarmGroup, Boolean) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Card(
+        onClick = { onOpenGroup(row.group.id) },
+        shape = RoundedCornerShape(14.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        modifier = modifier,
+    ) {
+        Column(
+            Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+            verticalArrangement = Arrangement.spacedBy(1.dp),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    row.group.name,
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
+                )
+                Box(Modifier.requiredSize(30.dp).wrapContentSize(Alignment.Center)) {
+                    Switch(
+                        checked = row.isOn,
+                        onCheckedChange = { onToggle(row.group, it) },
+                        modifier = Modifier.scale(0.5f),
+                    )
+                }
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                Text(
+                    "${row.enabledCount}/${row.totalCount}",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Text(
+                    TimeFormat.nextTrigger(row.nextTriggerAt),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.primary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
+                )
             }
         }
     }
