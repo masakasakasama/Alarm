@@ -92,11 +92,21 @@ fun SettingsScreen(vm: MainViewModel, onOpenLog: () -> Unit, onOpenReliability: 
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         Text("開始音量", modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
                         OutlinedButton(onClick = {
-                            if (fadeInStartVolume > 5) { fadeInStartVolume -= 5; globalPrefs.fadeInStartVolume = fadeInStartVolume }
+                            val next = (fadeInStartVolume - GlobalAlarmPrefs.FADE_IN_START_VOLUME_STEP)
+                                .coerceAtLeast(GlobalAlarmPrefs.MIN_FADE_IN_START_VOLUME)
+                            if (next != fadeInStartVolume) {
+                                fadeInStartVolume = next
+                                globalPrefs.fadeInStartVolume = next
+                            }
                         }) { Text("-") }
                         Text("${fadeInStartVolume}%", modifier = Modifier.padding(horizontal = 12.dp), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                         OutlinedButton(onClick = {
-                            if (fadeInStartVolume < 50) { fadeInStartVolume += 5; globalPrefs.fadeInStartVolume = fadeInStartVolume }
+                            val next = (fadeInStartVolume + GlobalAlarmPrefs.FADE_IN_START_VOLUME_STEP)
+                                .coerceAtMost(GlobalAlarmPrefs.MAX_FADE_IN_START_VOLUME)
+                            if (next != fadeInStartVolume) {
+                                fadeInStartVolume = next
+                                globalPrefs.fadeInStartVolume = next
+                            }
                         }) { Text("+") }
                     }
                 }
