@@ -3,6 +3,7 @@ package com.galaxyalarm.ring
 import android.content.Intent
 import android.os.Build
 import android.os.Bundle
+import android.util.Log
 import android.view.KeyEvent
 import android.view.WindowManager
 import androidx.activity.OnBackPressedCallback
@@ -32,6 +33,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.galaxyalarm.notify.NotificationHelper
 import com.galaxyalarm.receiver.AlarmReceiver
 import com.galaxyalarm.scheduler.AlarmIntents
 import com.galaxyalarm.ui.theme.Danger
@@ -44,6 +46,7 @@ class AlarmRingActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        recoverFromNotificationIntent(intent)
         showOverLockscreen()
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() = stopAllAndClose()
@@ -64,6 +67,29 @@ class AlarmRingActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
+        recoverFromNotificationIntent(intent)
+    }
+
+    /**
+     * 通知を押した瞬間にプロセス再生成やService再配信が重なると、プロセス内だけの
+     * ActiveAlarms が一時的に空になることがある。その場合でも通知Intentに埋め込んだ
+     * occurrence情報から画面を復元し、「押したのに即finishして何も起きない」を防ぐ。
+     */
+    private fun recoverFromNotificationIntent(source: Intent) {
+        val occurrenceId = source.getLongExtra(AlarmIntents.EXTRA_OCCURRENCE_ID, -1L)
+        val dismissed = occurrenceId != -1L && AlarmDismissalStore(applicationContext).isDismissed(occurrenceId)
+        val recovered = NotificationRingRecovery.candidate(
+            isNotificationTap = source.action == NotificationHelper.ACTION_OPEN_ALARM_RING,
+            occurrenceId = occurrenceId,
+            alarmId = source.getLongExtra(AlarmIntents.EXTRA_ALARM_ID, -1L),
+            label = source.getStringExtra(NotificationHelper.EXTRA_ALARM_LABEL),
+            timeText = source.getStringExtra(NotificationHelper.EXTRA_ALARM_TIME_TEXT),
+            dismissed = dismissed,
+            alreadyActive = occurrenceId != -1L && ActiveAlarms.contains(occurrenceId),
+        ) ?: return
+
+        ActiveAlarms.push(recovered)
+        Log.i(TAG, "recovered notification tap occurrence=${recovered.occurrenceId}")
     }
 
     private fun showOverLockscreen() {
@@ -109,6 +135,31 @@ class AlarmRingActivity : ComponentActivity() {
             return true
         }
         return super.onKeyDown(keyCode, event)
+    }
+
+    private companion object {
+        const val TAG = "AlarmRingActivity"
+    }
+}
+
+/** Pure recovery decision so notification-tap edge cases can be unit tested without Android UI. */
+internal object NotificationRingRecovery {
+    fun candidate(
+        isNotificationTap: Boolean,
+        occurrenceId: Long,
+        alarmId: Long,
+        label: String?,
+        timeText: String?,
+        dismissed: Boolean,
+        alreadyActive: Boolean,
+    ): ActiveAlarm? {
+        if (!isNotificationTap || occurrenceId == -1L || dismissed || alreadyActive) return null
+        return ActiveAlarm(
+            occurrenceId = occurrenceId,
+            alarmId = alarmId,
+            label = label.orEmpty().ifBlank { "アラーム" },
+            timeText = timeText.orEmpty(),
+        )
     }
 }
 

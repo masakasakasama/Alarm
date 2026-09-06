@@ -37,13 +37,14 @@
             </intent-filter>
         </activity>
 
-        <!-- 鳴動用 全画面アクティビティ -->
+        <!-- 鳴動用 全画面アクティビティ。通知専用の独立taskとして扱う。 -->
         <activity
             android:name=".ring.AlarmRingActivity"
             android:directBootAware="true"
             android:exported="false"
-            android:excludeFromRecents="false"
-            android:launchMode="singleTop"
+            android:excludeFromRecents="true"
+            android:launchMode="singleTask"
+            android:taskAffinity=""
             android:showOnLockScreen="true"
             android:showWhenLocked="true"
             android:turnScreenOn="true"
