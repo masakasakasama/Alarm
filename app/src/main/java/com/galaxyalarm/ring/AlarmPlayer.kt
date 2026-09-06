@@ -99,11 +99,10 @@ class AlarmPlayer(private val context: Context) {
             RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION),
         ).distinct()
         val generation = ++playbackGeneration
-        val startVol = if (fadeInSeconds > 0) {
-            (fadeInStartVolume / 100f).coerceIn(MIN_FADE_VOLUME, 1f)
-        } else {
-            1.0f
-        }
+        val startVol = FadeInVolume.initial(
+            fadeEnabled = fadeInSeconds > 0,
+            startPercent = fadeInStartVolume,
+        )
 
         val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
         runCatching {
@@ -147,7 +146,14 @@ class AlarmPlayer(private val context: Context) {
                         prepared.start()
                     }.onSuccess {
                         onStarted()
-                        if (fadeInSeconds > 0) startFade(fadeInSeconds, startVol)
+                        if (fadeInSeconds > 0) {
+                            startFade(
+                                fadeInSeconds = fadeInSeconds,
+                                startVol = startVol,
+                                generation = generation,
+                                target = prepared,
+                            )
+                        }
                     }.onFailure { error ->
                         Log.e(TAG, "alarm sound failed to start: $uri", error)
                         runCatching { prepared.release() }
@@ -190,16 +196,35 @@ class AlarmPlayer(private val context: Context) {
         tryCandidate(0)
     }
 
-    private fun startFade(fadeInSeconds: Int, startVol: Float) {
+    private fun startFade(
+        fadeInSeconds: Int,
+        startVol: Float,
+        generation: Int,
+        target: MediaPlayer,
+    ) {
         fadeJob?.cancel()
         fadeJob = scope.launch {
             val steps = fadeInSeconds.coerceAtLeast(1)
-            val increment = (1.0f - startVol) / steps
-            var vol = startVol
-            repeat(steps) {
+            repeat(steps) { index ->
                 delay(1000L)
-                vol = (vol + increment).coerceAtMost(1.0f)
-                player?.setVolume(vol, vol)
+                if (generation != playbackGeneration || player !== target) return@launch
+
+                val volume = FadeInVolume.atStep(
+                    startVolume = startVol,
+                    step = index + 1,
+                    totalSteps = steps,
+                )
+                val updated = runCatching {
+                    target.setVolume(volume, volume)
+                }.onFailure {
+                    Log.e(TAG, "failed to update fade-in volume", it)
+                }.isSuccess
+
+                if (!updated) {
+                    // 0%開始時にフェード更新だけ失敗して無音のまま残ることを避ける。
+                    runCatching { target.setVolume(1.0f, 1.0f) }
+                    return@launch
+                }
             }
         }
     }
@@ -260,6 +285,17 @@ class AlarmPlayer(private val context: Context) {
     companion object {
         private const val TAG = "AlarmPlayer"
         private const val PREPARE_TIMEOUT_MS = 1_500L
-        private const val MIN_FADE_VOLUME = 0.05f
+    }
+}
+
+internal object FadeInVolume {
+    fun initial(fadeEnabled: Boolean, startPercent: Int): Float =
+        if (fadeEnabled) (startPercent / 100f).coerceIn(0.0f, 1.0f) else 1.0f
+
+    fun atStep(startVolume: Float, step: Int, totalSteps: Int): Float {
+        val safeStart = startVolume.coerceIn(0.0f, 1.0f)
+        val safeTotal = totalSteps.coerceAtLeast(1)
+        val progress = step.coerceIn(0, safeTotal).toFloat() / safeTotal.toFloat()
+        return (safeStart + (1.0f - safeStart) * progress).coerceIn(0.0f, 1.0f)
     }
 }
