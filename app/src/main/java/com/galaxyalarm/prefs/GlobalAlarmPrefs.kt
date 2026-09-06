@@ -16,8 +16,19 @@ class GlobalAlarmPrefs(context: Context) {
         set(v) = sp.edit().putInt("fadeInSeconds", v).apply()
 
     var fadeInStartVolume: Int
-        get() = sp.getInt("fadeInStartVolume", 5).coerceIn(5, 50)
-        set(v) = sp.edit().putInt("fadeInStartVolume", v.coerceIn(5, 50)).apply()
+        get() = sp.getInt("fadeInStartVolume", DEFAULT_FADE_IN_START_VOLUME)
+            .coerceIn(MIN_FADE_IN_START_VOLUME, MAX_FADE_IN_START_VOLUME)
+        set(v) = sp.edit().putInt(
+            "fadeInStartVolume",
+            v.coerceIn(MIN_FADE_IN_START_VOLUME, MAX_FADE_IN_START_VOLUME)
+        ).apply()
 
-    private companion object { const val PREFS_NAME = "global_alarm_prefs" }
+    companion object {
+        const val MIN_FADE_IN_START_VOLUME = 0
+        const val MAX_FADE_IN_START_VOLUME = 50
+        const val DEFAULT_FADE_IN_START_VOLUME = 5
+        const val FADE_IN_START_VOLUME_STEP = 5
+
+        private const val PREFS_NAME = "global_alarm_prefs"
+    }
 }
