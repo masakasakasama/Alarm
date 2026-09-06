@@ -72,14 +72,7 @@ class NotificationHelper(private val context: Context) {
 
     /** 実行中タイマーの常駐通知。残り時間をカウントダウン表示し、キャンセル操作を提供する。 */
     fun showTimerNotification(timerId: Int, endAt: Long, soundOn: Boolean) {
-        val openPi = PendingIntent.getActivity(
-            context,
-            7100 + timerId,
-            Intent(context, MainActivity::class.java).apply {
-                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
-            },
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
+        val openPi = mainActivityPendingIntent(7100 + timerId)
         val cancelPi = PendingIntent.getBroadcast(
             context,
             7200 + timerId,
@@ -112,25 +105,24 @@ class NotificationHelper(private val context: Context) {
         runCatching { nm.cancel(TIMER_ID_BASE + timerId) }
     }
 
+    /**
+     * Foreground Service を5秒以内に前面化するための一時通知。
+     * DB読込中の短い時間でも通知タップが無反応にならないよう、必ずアプリを開ける PendingIntent を付ける。
+     */
     fun buildLoadingNotification(): Notification =
         NotificationCompat.Builder(context, CHANNEL_ALARM)
             .setSmallIcon(R.drawable.ic_launcher_foreground)
             .setContentTitle("アラーム")
+            .setContentText("アラームを起動しています")
             .setPriority(NotificationCompat.PRIORITY_MAX)
             .setCategory(NotificationCompat.CATEGORY_ALARM)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setOngoing(true)
+            .setOnlyAlertOnce(true)
+            .setContentIntent(mainActivityPendingIntent(LOADING_NOTIFICATION_REQUEST_CODE))
             .build()
 
     fun showReliabilityWarning(title: String, message: String) {
-        val pi = PendingIntent.getActivity(
-            context,
-            7001,
-            Intent(context, MainActivity::class.java).apply {
-                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
-            },
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
         val notification = NotificationCompat.Builder(context, CHANNEL_RELIABILITY_ALERT)
             .setSmallIcon(R.drawable.ic_launcher_foreground)
             .setContentTitle(title)
@@ -139,7 +131,7 @@ class NotificationHelper(private val context: Context) {
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setCategory(NotificationCompat.CATEGORY_ALARM)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
-            .setContentIntent(pi)
+            .setContentIntent(mainActivityPendingIntent(RELIABILITY_NOTIFICATION_REQUEST_CODE))
             .setAutoCancel(true)
             .build()
         runCatching { nm.notify(RELIABILITY_ALERT_ID, notification) }
@@ -151,14 +143,13 @@ class NotificationHelper(private val context: Context) {
         label: String,
         timeText: String,
     ): Notification {
-        // PendingIntent は requestCode だけでなく data URI も occurrence ごとに一意化する。
-        // FLAG_CANCEL_CURRENT で古い PendingIntent を確実に破棄し、通知タップ時の stale intent を防ぐ。
+        // action + data URI + requestCode を occurrence ごとに一意化する。
+        // 同じ occurrence の通知更新では PendingIntent 自体をキャンセルせず中身だけ更新し、
+        // SystemUI が古い通知を保持している瞬間にタップしても CanceledException 相当の無反応を作らない。
         val openIntent = Intent(context, AlarmRingActivity::class.java).apply {
             action = ACTION_OPEN_ALARM_RING
             data = Uri.parse("galaxyalarm://ring/$occurrenceId")
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK or
-                Intent.FLAG_ACTIVITY_CLEAR_TOP or
-                Intent.FLAG_ACTIVITY_SINGLE_TOP
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
             putExtra(AlarmIntents.EXTRA_OCCURRENCE_ID, occurrenceId)
             putExtra(AlarmIntents.EXTRA_ALARM_ID, alarmId)
             putExtra(EXTRA_ALARM_LABEL, label)
@@ -168,7 +159,7 @@ class NotificationHelper(private val context: Context) {
             context,
             occurrenceRequestCode(occurrenceId),
             openIntent,
-            PendingIntent.FLAG_CANCEL_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
         val stopPi = PendingIntent.getBroadcast(
             context,
@@ -226,6 +217,18 @@ class NotificationHelper(private val context: Context) {
             .build()
     }
 
+    private fun mainActivityPendingIntent(requestCode: Int): PendingIntent =
+        PendingIntent.getActivity(
+            context,
+            requestCode,
+            Intent(context, MainActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or
+                    Intent.FLAG_ACTIVITY_CLEAR_TOP or
+                    Intent.FLAG_ACTIVITY_SINGLE_TOP
+            },
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
     private fun occurrenceRequestCode(occurrenceId: Long): Int =
         (occurrenceId xor (occurrenceId ushr 32)).toInt()
 
@@ -242,5 +245,7 @@ class NotificationHelper(private val context: Context) {
         const val EXTRA_ALARM_LABEL = "extra_alarm_label"
         const val EXTRA_ALARM_TIME_TEXT = "extra_alarm_time_text"
         private const val OBSOLETE_NEXT_ALARM_STATUS_ID = 45
+        private const val RELIABILITY_NOTIFICATION_REQUEST_CODE = 7001
+        private const val LOADING_NOTIFICATION_REQUEST_CODE = 7002
     }
 }
