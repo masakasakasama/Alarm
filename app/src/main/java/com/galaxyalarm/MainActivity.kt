@@ -56,7 +56,16 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         editAlarmRequest.value = intent.openAlarmId()
         val app = application as AlarmApplication
-        lastExactAlarmPermission = app.container.permissions.canScheduleExactAlarms()
+        val container = app.container
+        val exactAtLaunch = container.permissions.canScheduleExactAlarms()
+        lastExactAlarmPermission = exactAtLaunch
+        if (exactAtLaunch) {
+            // 強制停止などでOS側PendingIntentだけ消えた後も、ユーザーがアプリを開けば即復旧する。
+            app.appScope.launch {
+                container.repository.rescheduleAll("activity-create")
+                container.reliabilityChecker.runCheck()
+            }
+        }
         enableEdgeToEdge()
         requestNotificationPermissionIfNeeded()
         setContent {
