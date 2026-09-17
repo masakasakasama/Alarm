@@ -35,6 +35,7 @@ import com.galaxyalarm.ring.AlarmStopController
 import com.galaxyalarm.ui.AppNavigation
 import com.galaxyalarm.ui.SystemSettings
 import com.galaxyalarm.ui.theme.Danger
+import com.galaxyalarm.ui.theme.GalaxyAlarmTheme
 import com.galaxyalarm.update.AutoUpdateInstaller
 import com.galaxyalarm.update.UpdateChecker
 import com.galaxyalarm.update.UpdatePermissionRecovery
