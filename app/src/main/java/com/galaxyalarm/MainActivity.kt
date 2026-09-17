@@ -35,7 +35,6 @@ import com.galaxyalarm.ring.AlarmStopController
 import com.galaxyalarm.ui.AppNavigation
 import com.galaxyalarm.ui.SystemSettings
 import com.galaxyalarm.ui.theme.Danger
-import com.galaxyalarm.ui.theme.GalaxyAlarmTheme
 import com.galaxyalarm.update.AutoUpdateInstaller
 import com.galaxyalarm.update.UpdateChecker
 import com.galaxyalarm.update.UpdatePermissionRecovery
@@ -45,6 +44,7 @@ class MainActivity : ComponentActivity() {
     private val editAlarmRequest = mutableStateOf<Long?>(null)
     private var notificationPermissionResolved = Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU
     private var fullScreenRecoveryInFlight = false
+    private var lastExactAlarmPermission: Boolean? = null
 
     private val notifPermLauncher =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) {
@@ -55,6 +55,8 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         editAlarmRequest.value = intent.openAlarmId()
+        val app = application as AlarmApplication
+        lastExactAlarmPermission = app.container.permissions.canScheduleExactAlarms()
         enableEdgeToEdge()
         requestNotificationPermissionIfNeeded()
         setContent {
@@ -81,8 +83,15 @@ class MainActivity : ComponentActivity() {
         maybeRecoverFullScreenPermission()
         val app = application as AlarmApplication
         val container = app.container
-        if (container.permissions.canScheduleExactAlarms()) {
+        val exactNow = container.permissions.canScheduleExactAlarms()
+        val wasExact = lastExactAlarmPermission
+        lastExactAlarmPermission = exactNow
+        if (exactNow) {
             app.appScope.launch {
+                // Broadcast取りこぼし対策。設定画面から戻って権限がfalse→trueになった時にも再予約する。
+                if (wasExact == false) {
+                    container.repository.rescheduleAll("activity-resume:exact-alarm-granted")
+                }
                 container.reliabilityChecker.runCheck()
             }
         }
