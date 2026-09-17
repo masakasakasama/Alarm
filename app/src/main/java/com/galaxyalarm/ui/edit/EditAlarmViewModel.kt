@@ -1,6 +1,7 @@
 package com.galaxyalarm.ui.edit
 
 import android.app.Application
+import android.widget.Toast
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.galaxyalarm.AlarmApplication
@@ -16,7 +17,8 @@ import kotlinx.coroutines.launch
 
 class EditAlarmViewModel(app: Application) : AndroidViewModel(app) {
     private val appContext = app.applicationContext
-    private val repo = (app as AlarmApplication).container.repository
+    private val container = (app as AlarmApplication).container
+    private val repo = container.repository
 
     val draft = MutableStateFlow<AlarmItem?>(null)
     val groups = MutableStateFlow<List<AlarmGroup>>(emptyList())
@@ -48,7 +50,18 @@ class EditAlarmViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun save(onDone: () -> Unit) = viewModelScope.launch {
-        draft.value?.let { repo.saveAlarm(it.withoutSilent().copy(enabled = true)) }
+        val item = draft.value ?: return@launch
+        val result = repo.saveAlarmChecked(item.withoutSilent().copy(enabled = true))
+        if (!result.scheduled) {
+            container.reliabilityChecker.runCheck()
+            Toast.makeText(
+                appContext,
+                "アラームを予約できませんでした。現在の設定は変更していません。権限を確認して再度保存してください",
+                Toast.LENGTH_LONG,
+            ).show()
+            return@launch
+        }
+
         refreshWidgets()
         backupIfConfigured()
         onDone()
