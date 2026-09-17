@@ -85,13 +85,21 @@ class AlarmScheduler(
         if (!permissions.canScheduleExactAlarms()) return@withLock
         val groups = groupDao.getAll().associateBy { it.id }
         alarmDao.getAll().forEach { alarm ->
-            val oldRegular = occurrenceDao.getScheduledForAlarm(alarm.id)
-                .filter { it.snoozeCount == 0 }
-            val enabled = alarm.enabled && groups[alarm.groupId]?.enabled == true
-            if (!enabled) {
-                occurrenceDao.getScheduledForAlarm(alarm.id).forEach { cancelOccurrenceLocked(it) }
-            } else if (scheduleAlarmLocked(alarm)) {
-                oldRegular.forEach { cancelOccurrenceLocked(it) }
+            val scheduled = occurrenceDao.getScheduledForAlarm(alarm.id)
+            val oldRegular = scheduled.filter { it.snoozeCount == 0 }
+            val groupEnabled = groups[alarm.groupId]?.enabled == true
+            when {
+                !groupEnabled -> {
+                    // グループOFFは明示的停止なのでスヌーズを含め全予約を取消す。
+                    scheduled.forEach { cancelOccurrenceLocked(it) }
+                }
+                !alarm.enabled -> {
+                    // 単発発火後はalarm自体が自動OFFになる。残っているスヌーズは維持する。
+                    oldRegular.forEach { cancelOccurrenceLocked(it) }
+                }
+                scheduleAlarmLocked(alarm) -> {
+                    oldRegular.forEach { cancelOccurrenceLocked(it) }
+                }
             }
         }
     }
@@ -116,10 +124,12 @@ class AlarmScheduler(
         triggerAt: Long,
         snoozeCount: Int,
     ): Boolean = mutex.withLock {
-        occurrenceDao.getScheduledForAlarm(alarmId)
+        val old = occurrenceDao.getScheduledForAlarm(alarmId)
             .filter { it.snoozeCount > 0 }
-            .forEach { cancelOccurrenceLocked(it) }
-        scheduleOccurrenceLocked(alarmId, groupId, triggerAt, snoozeCount)
+        // 新予約を先に作り、成功した場合だけ旧スヌーズを消す。
+        val scheduled = scheduleOccurrenceLocked(alarmId, groupId, triggerAt, snoozeCount)
+        if (scheduled) old.forEach { cancelOccurrenceLocked(it) }
+        scheduled
     }
 
     private suspend fun scheduleAlarmLocked(alarm: AlarmItem): Boolean {
