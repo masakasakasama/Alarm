@@ -5,6 +5,10 @@
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
     <!-- 信頼性のための権限群 -->
+    <!-- Android 12/12L は SCHEDULE_EXACT_ALARM、Android 13+ は USE_EXACT_ALARM を使用する。 -->
+    <uses-permission
+        android:name="android.permission.SCHEDULE_EXACT_ALARM"
+        android:maxSdkVersion="32" />
     <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
@@ -63,7 +67,7 @@
             android:directBootAware="true"
             android:exported="false" />
 
-        <!-- 起動完了・更新・時刻/TZ変更 -->
+        <!-- 起動完了・更新・時刻/TZ変更・exact alarm権限付与 -->
         <receiver
             android:name=".receiver.SystemEventReceiver"
             android:directBootAware="true"
@@ -75,6 +79,7 @@
                 <action android:name="android.intent.action.TIMEZONE_CHANGED" />
                 <action android:name="android.intent.action.LOCKED_BOOT_COMPLETED" />
                 <action android:name="android.intent.action.USER_UNLOCKED" />
+                <action android:name="android.app.action.SCHEDULE_EXACT_ALARM_PERMISSION_STATE_CHANGED" />
             </intent-filter>
         </receiver>
 
