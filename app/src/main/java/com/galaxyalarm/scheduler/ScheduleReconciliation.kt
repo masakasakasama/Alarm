@@ -29,9 +29,14 @@ internal object ScheduleReconciliation {
         val cancel = mutableListOf<ScheduledOccurrence>()
         val reassert = mutableListOf<ScheduledOccurrence>()
 
+        // A pending snooze is a durable user request in its own right. One-shot alarms are
+        // automatically disabled after the primary fire, so alarm.enabled must not be used
+        // to invalidate a still-scheduled snooze. An explicit user OFF goes through
+        // AlarmRepository.setAlarmEnabled(false), which cancels the scheduled snooze itself.
         occurrences.filter { it.snoozeCount > 0 }.forEach { occurrence ->
             val alarm = alarmsById[occurrence.alarmId]
-            if (alarm == null || alarm.id !in activeIds || occurrence.triggerAtMillis < cutoff) {
+            val groupEnabled = alarm?.let { groupsById[it.groupId]?.enabled == true } == true
+            if (alarm == null || !groupEnabled || occurrence.triggerAtMillis < cutoff) {
                 cancel += occurrence
             } else {
                 reassert += occurrence
@@ -49,7 +54,8 @@ internal object ScheduleReconciliation {
             cancel += regularByAlarm[alarm.id].orEmpty().filter { it.id != keep?.id }
         }
 
-        occurrences.filter { it.alarmId !in activeIds }.forEach { occurrence ->
+        // Only regular occurrences depend on alarm.enabled. Snoozes were handled above.
+        occurrences.filter { it.snoozeCount == 0 && it.alarmId !in activeIds }.forEach { occurrence ->
             if (cancel.none { it.id == occurrence.id }) cancel += occurrence
         }
 
