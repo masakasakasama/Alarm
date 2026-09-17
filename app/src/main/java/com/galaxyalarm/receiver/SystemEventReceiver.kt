@@ -1,5 +1,6 @@
 package com.galaxyalarm.receiver
 
+import android.app.AlarmManager
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -33,7 +34,14 @@ class SystemEventReceiver : BroadcastReceiver() {
                 if (action == Intent.ACTION_TIME_CHANGED || action == Intent.ACTION_TIMEZONE_CHANGED) {
                     container.repository.recalculateRegularAlarms("system:$action")
                 } else {
-                    container.repository.rescheduleAll("system:$action")
+                    // Exact alarm permission grant is handled here as well. Android's contract
+                    // explicitly requires rebuilding exact alarms after this broadcast.
+                    if (
+                        action != AlarmManager.ACTION_SCHEDULE_EXACT_ALARM_PERMISSION_STATE_CHANGED ||
+                        container.permissions.canScheduleExactAlarms()
+                    ) {
+                        container.repository.rescheduleAll("system:$action")
+                    }
                 }
                 val report = if (unlocked) container.reliabilityChecker.runCheck() else null
                 if (unlocked) NextAlarmWidgetProvider.refresh(context)
@@ -61,6 +69,7 @@ class SystemEventReceiver : BroadcastReceiver() {
             Intent.ACTION_TIME_CHANGED,
             Intent.ACTION_TIMEZONE_CHANGED,
             Intent.ACTION_USER_UNLOCKED,
+            AlarmManager.ACTION_SCHEDULE_EXACT_ALARM_PERMISSION_STATE_CHANGED,
         )
     }
 }
