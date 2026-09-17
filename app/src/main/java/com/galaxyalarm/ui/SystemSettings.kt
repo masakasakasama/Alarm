@@ -65,6 +65,26 @@ object SystemSettings {
         }.onFailure { openAppDetails(context) }
     }
 
+    fun isSamsungDevice(): Boolean =
+        Build.MANUFACTURER.equals("samsung", ignoreCase = true)
+
+    /** Samsung公式のNever sleeping apps画面へ直接開く。非対応機では一般設定へフォールバック。 */
+    fun openSamsungNeverSleepingApps(context: Context): Boolean {
+        if (!isSamsungDevice()) return false
+        return runCatching {
+            context.startActivity(
+                Intent("com.samsung.android.sm.ACTION_OPEN_CHECKABLE_LISTACTIVITY")
+                    .setPackage("com.samsung.android.lool")
+                    .putExtra("activity_type", 2)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            )
+            true
+        }.getOrElse {
+            openBatteryOptimizationSettings(context)
+            false
+        }
+    }
+
     fun openAppDetails(context: Context) {
         runCatching {
             context.startActivity(
