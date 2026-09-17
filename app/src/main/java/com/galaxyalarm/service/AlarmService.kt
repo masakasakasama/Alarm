@@ -195,8 +195,9 @@ class AlarmService : Service() {
                 if (com.galaxyalarm.data.model.Weekdays.isRepeating(alarm.weekdaysMask)) {
                     container.scheduler.replaceAlarm(alarm)
                 } else {
+                    // 単発は発火後にUI上OFFにするが、ここで alarm 単位の全予約を消さない。
+                    // ユーザーが直後にスヌーズした場合、その新規予約まで競合して消すのを防ぐ。
                     container.db.alarmDao().setEnabled(alarm.id, false, now)
-                    container.scheduler.cancelAlarm(alarm.id)
                 }
                 if (isBackupFire) container.scheduler.cancelBackup(occ.id)
                 NextAlarmWidgetProvider.refresh(this@AlarmService)
@@ -335,31 +336,77 @@ class AlarmService : Service() {
 
     private fun handleSnooze(occurrenceId: Long) {
         scope.launch {
-            try {
-                container.scheduler.cancelBackup(occurrenceId)
-                val occ = container.db.occurrenceDao().getById(occurrenceId) ?: return@launch
-                val alarm = container.db.alarmDao().getById(occ.alarmId) ?: return@launch
-                if (alarm.snoozeEnabled && occ.snoozeCount < alarm.maxSnoozeCount) {
-                    val next = System.currentTimeMillis() + alarm.snoozeMinutes * 60_000L
-                    container.scheduler.replaceSnooze(
-                        alarm.id,
-                        alarm.groupId,
-                        next,
-                        occ.snoozeCount + 1
-                    )
-                    NextAlarmWidgetProvider.refresh(this@AlarmService)
+            val occ = container.db.occurrenceDao().getById(occurrenceId) ?: return@launch
+            val alarm = container.db.alarmDao().getById(occ.alarmId) ?: return@launch
+
+            // スヌーズ不能時は従来どおり停止扱い。予約を試みたのに失敗した場合だけは、
+            // 「止まったのに次が鳴らない」を防ぐため現在の鳴動を絶対に止めない。
+            if (!alarm.snoozeEnabled || occ.snoozeCount >= alarm.maxSnoozeCount) {
+                withContext(Dispatchers.Main.immediate) { stopOne(occurrenceId) }
+                return@launch
+            }
+
+            val next = System.currentTimeMillis() + alarm.snoozeMinutes * 60_000L
+            val previousSnoozes = container.db.occurrenceDao()
+                .getScheduledForAlarm(alarm.id)
+                .filter { it.snoozeCount > 0 }
+
+            val scheduled = try {
+                container.scheduler.scheduleOccurrence(
+                    alarm.id,
+                    alarm.groupId,
+                    next,
+                    occ.snoozeCount + 1,
+                )
+            } catch (error: Exception) {
+                Log.e(TAG, "snooze scheduling failed", error)
+                false
+            }
+
+            if (!scheduled) {
+                runCatching {
                     container.repository.log(
                         AlarmEventLog(
-                            alarmId = alarm.id, groupId = alarm.groupId,
-                            scheduledAtMillis = next, firedAtMillis = null, delayMs = null,
-                            result = EventResult.SNOOZED,
-                            message = "スヌーズ${occ.snoozeCount + 1}回目 (+${alarm.snoozeMinutes}分)"
+                            alarmId = alarm.id,
+                            groupId = alarm.groupId,
+                            scheduledAtMillis = next,
+                            firedAtMillis = null,
+                            delayMs = null,
+                            result = EventResult.FAILED_TO_SCHEDULE,
+                            message = "スヌーズ予約失敗。鳴動を継続"
                         )
                     )
                 }
-            } finally {
-                withContext(Dispatchers.Main.immediate) { stopOne(occurrenceId) }
+                notifier.showReliabilityWarning(
+                    title = "スヌーズを設定できませんでした",
+                    message = "現在のアラームは停止せず鳴らし続けています。権限を確認して再度スヌーズしてください。"
+                )
+                return@launch
             }
+
+            // 新しいスヌーズの予約成功を確認してから、旧スヌーズと現在発火分の予備予約を消す。
+            previousSnoozes.forEach { old ->
+                runCatching { container.scheduler.cancelOccurrence(old) }
+                    .onFailure { Log.e(TAG, "failed to cancel old snooze ${old.id}", it) }
+            }
+            runCatching { container.scheduler.cancelBackup(occurrenceId) }
+                .onFailure { Log.e(TAG, "failed to cancel fired occurrence backup $occurrenceId", it) }
+
+            NextAlarmWidgetProvider.refresh(this@AlarmService)
+            runCatching {
+                container.repository.log(
+                    AlarmEventLog(
+                        alarmId = alarm.id,
+                        groupId = alarm.groupId,
+                        scheduledAtMillis = next,
+                        firedAtMillis = null,
+                        delayMs = null,
+                        result = EventResult.SNOOZED,
+                        message = "スヌーズ${occ.snoozeCount + 1}回目 (+${alarm.snoozeMinutes}分)"
+                    )
+                )
+            }
+            withContext(Dispatchers.Main.immediate) { stopOne(occurrenceId) }
         }
     }
 
