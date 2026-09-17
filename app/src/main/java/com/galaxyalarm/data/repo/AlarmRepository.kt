@@ -390,13 +390,15 @@ class AlarmRepository(
             }
             if (duplicate) continue
 
+            val desiredEnabled = alarmJson.optBoolean("enabled", true)
             val item = AlarmItem(
                 groupId = groupId,
                 label = label,
                 hour = hour,
                 minute = minute,
                 weekdaysMask = weekdaysMask,
-                enabled = alarmJson.optBoolean("enabled", true),
+                // 復元直後は必ずOFF。OS予約に成功したものだけ後でONへ昇格させる。
+                enabled = false,
                 soundMode = enumValueOrDefault(alarmJson.optString("soundMode"), SoundMode.SOUND),
                 ringtoneUri = alarmJson.optString("ringtoneUri").ifBlank { null },
                 vibrationEnabled = alarmJson.optBoolean("vibrationEnabled", true),
@@ -407,6 +409,10 @@ class AlarmRepository(
                 autoStopMinutes = alarmJson.optInt("autoStopMinutes", 5)
             ).withSafeSoundMode()
             val id = alarmDao.insert(item)
+            if (desiredEnabled) {
+                // 権限不足やAlarmManager失敗時はOFFのまま残す。ON表示だけ復元される状態を禁止する。
+                setAlarmEnabled(id, true)
+            }
             alarmDao.getById(id)?.let { existingAlarms += it }
             insertedAlarms += 1
         }
