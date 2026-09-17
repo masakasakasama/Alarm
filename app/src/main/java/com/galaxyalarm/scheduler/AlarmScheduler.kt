@@ -166,8 +166,27 @@ class AlarmScheduler(
             val pi = firePendingIntent(occ.id, alarmId, requestCode)
             val showPi = showPendingIntent(alarmId, requestCode)
             alarmManager.setAlarmClock(AlarmManager.AlarmClockInfo(triggerAt, showPi), pi)
-            scheduleBackup(occ, triggerAt)
-            true
+            val backupScheduled = scheduleBackup(occ, triggerAt)
+            if (!backupScheduled) {
+                // 新規/置換予約は主+予備の両方が成立して初めて成功扱いにする。
+                // replaceAlarmの旧予約を消す前にfalseを返すため、失敗時も既存アラームを維持できる。
+                runCatching { cancelPendingIntent(pi) }
+                occurrenceDao.setStatus(occ.id, OccurrenceStatus.FAILED, System.currentTimeMillis())
+                logDao.insert(
+                    AlarmEventLog(
+                        alarmId = alarmId,
+                        groupId = groupId,
+                        scheduledAtMillis = triggerAt,
+                        firedAtMillis = null,
+                        delayMs = null,
+                        result = EventResult.FAILED_TO_SCHEDULE,
+                        message = "予備予約を作成できなかったため主予約も取り消しました"
+                    )
+                )
+                false
+            } else {
+                true
+            }
         } catch (e: Exception) {
             runCatching { cancelPendingIntent(firePendingIntent(occ.id, alarmId, requestCode)) }
             runCatching { cancelPendingIntent(backupPendingIntent(occ)) }
