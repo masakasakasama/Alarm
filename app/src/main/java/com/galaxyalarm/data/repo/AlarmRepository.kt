@@ -15,6 +15,11 @@ import kotlinx.coroutines.flow.Flow
 import org.json.JSONArray
 import org.json.JSONObject
 
+data class AlarmSaveResult(
+    val alarmId: Long,
+    val scheduled: Boolean,
+)
+
 class AlarmRepository(
     private val groupDao: AlarmGroupDao,
     private val alarmDao: AlarmItemDao,
@@ -56,14 +61,36 @@ class AlarmRepository(
         groupDao.delete(group)
     }
 
-    suspend fun setGroupEnabled(groupId: Long, enabled: Boolean) {
+    /**
+     * グループONは各アラームのOS予約成功を確認してからDBをONにする。
+     * 予約失敗したアラームはOFFのまま残し、画面だけONになる状態を作らない。
+     */
+    suspend fun setGroupEnabled(groupId: Long, enabled: Boolean): Boolean {
         val group = groupDao.getById(groupId)
-        if (group != null && isDefaultGroupName(group.name)) return
+        if (group != null && isDefaultGroupName(group.name)) return true
 
         val now = System.currentTimeMillis()
-        groupDao.setEnabled(groupId, enabled, now)
-        alarmDao.setEnabledForGroup(groupId, enabled, now)
-        if (enabled) scheduler.rescheduleAll("group-on") else scheduler.cancelGroup(groupId)
+        if (!enabled) {
+            scheduler.cancelGroup(groupId)
+            alarmDao.setEnabledForGroup(groupId, false, now)
+            groupDao.setEnabled(groupId, false, now)
+            return true
+        }
+
+        groupDao.setEnabled(groupId, true, now)
+        var allScheduled = true
+        alarmDao.getByGroup(groupId).forEach { alarm ->
+            val candidate = alarm.copy(enabled = true, updatedAt = now)
+            val scheduled = scheduler.replaceAlarm(candidate)
+            if (scheduled) {
+                alarmDao.setEnabled(alarm.id, true, now)
+            } else {
+                scheduler.cancelAlarm(alarm.id)
+                alarmDao.setEnabled(alarm.id, false, now)
+                allScheduled = false
+            }
+        }
+        return allScheduled
     }
 
     suspend fun ensureDefaultGroup(): Long {
@@ -165,22 +192,70 @@ class AlarmRepository(
         return insertedGroups to insertedAlarms
     }
 
-    suspend fun saveAlarm(item: AlarmItem): Long {
+    /** Compatibility wrapper for callers that only need the id. */
+    suspend fun saveAlarm(item: AlarmItem): Long = saveAlarmChecked(item).alarmId
+
+    /**
+     * ONで保存する場合は、OS予約成功を確認してから enabled=true を永続化する。
+     * 既存アラームの予約失敗時は元データと元予約を保持する。新規作成の失敗時は仮行を削除する。
+     */
+    suspend fun saveAlarmChecked(item: AlarmItem): AlarmSaveResult {
         val normalized = item.withSafeSoundMode()
-        val id = if (normalized.id == 0L) {
-            alarmDao.insert(normalized)
-        } else {
-            alarmDao.update(normalized.copy(updatedAt = System.currentTimeMillis()))
-            normalized.id
+        val wantsEnabled = normalized.enabled
+        val now = System.currentTimeMillis()
+
+        if (!wantsEnabled) {
+            val id = if (normalized.id == 0L) {
+                alarmDao.insert(normalized.copy(enabled = false))
+            } else {
+                scheduler.cancelAlarm(normalized.id)
+                alarmDao.update(normalized.copy(enabled = false, updatedAt = now))
+                normalized.id
+            }
+            return AlarmSaveResult(id, true)
         }
-        val saved = alarmDao.getById(id)!!
-        if (saved.enabled) {
-            enableGroupForAlarm(saved.groupId)
-            scheduler.replaceAlarm(saved)
-        } else {
-            scheduler.cancelAlarm(saved.id)
+
+        if (normalized.id == 0L) {
+            // AlarmManagerのrequestを作るにはalarmIdが必要なので、OFF状態の仮行だけ先に作る。
+            val stagedId = alarmDao.insert(normalized.copy(enabled = false))
+            val candidate = normalized.copy(id = stagedId, enabled = true, updatedAt = now)
+            enableGroupForAlarm(candidate.groupId)
+            val scheduled = scheduler.replaceAlarm(candidate)
+            if (!scheduled) {
+                runCatching { scheduler.cancelAlarm(stagedId) }
+                alarmDao.getById(stagedId)?.let { alarmDao.delete(it) }
+                return AlarmSaveResult(0L, false)
+            }
+            return try {
+                alarmDao.update(candidate)
+                AlarmSaveResult(stagedId, true)
+            } catch (error: Exception) {
+                runCatching { scheduler.cancelAlarm(stagedId) }
+                alarmDao.getById(stagedId)?.let { runCatching { alarmDao.delete(it) } }
+                throw error
+            }
         }
-        return id
+
+        val original = alarmDao.getById(normalized.id)
+            ?: return AlarmSaveResult(normalized.id, false)
+        val candidate = normalized.copy(enabled = true, updatedAt = now)
+        enableGroupForAlarm(candidate.groupId)
+        val scheduled = scheduler.replaceAlarm(candidate)
+        if (!scheduled) {
+            // replaceAlarmは失敗時に旧予約を保持するためDBも元のままにする。
+            return AlarmSaveResult(original.id, false)
+        }
+
+        return try {
+            alarmDao.update(candidate)
+            AlarmSaveResult(candidate.id, true)
+        } catch (error: Exception) {
+            // DB更新だけ失敗した場合は、可能な限り元の予約状態へ戻す。
+            runCatching {
+                if (original.enabled) scheduler.replaceAlarm(original) else scheduler.cancelAlarm(original.id)
+            }
+            throw error
+        }
     }
 
     suspend fun deleteAlarm(item: AlarmItem) {
@@ -188,14 +263,28 @@ class AlarmRepository(
         alarmDao.delete(item)
     }
 
-    suspend fun setAlarmEnabled(alarmId: Long, enabled: Boolean) {
-        alarmDao.setEnabled(alarmId, enabled, System.currentTimeMillis())
-        if (enabled) {
-            val alarm = alarmDao.getById(alarmId) ?: return
-            enableGroupForAlarm(alarm.groupId)
-            scheduler.replaceAlarm(alarm)
-        } else {
+    /** ONは予約成功後、OFFは予約取消成功後にDBへ反映する。 */
+    suspend fun setAlarmEnabled(alarmId: Long, enabled: Boolean): Boolean {
+        val alarm = alarmDao.getById(alarmId) ?: return false
+        val now = System.currentTimeMillis()
+
+        if (!enabled) {
             scheduler.cancelAlarm(alarmId)
+            alarmDao.setEnabled(alarmId, false, now)
+            return true
+        }
+
+        enableGroupForAlarm(alarm.groupId)
+        val candidate = alarm.copy(enabled = true, updatedAt = now)
+        val scheduled = scheduler.replaceAlarm(candidate)
+        if (!scheduled) return false
+
+        return try {
+            alarmDao.setEnabled(alarmId, true, now)
+            true
+        } catch (error: Exception) {
+            runCatching { scheduler.cancelAlarm(alarmId) }
+            throw error
         }
     }
 
