@@ -37,16 +37,29 @@ class ScheduleReconciliationTest {
         assertTrue(plan.create.isEmpty())
     }
 
-    @Test fun disabledAlarmCancelsRegularAndSnoozeOccurrences() {
-        val disabled = alarm.copy(enabled = false)
+    @Test fun autoDisabledOneShotKeepsPendingSnoozeButCancelsRegularOccurrence() {
+        val autoDisabled = alarm.copy(enabled = false)
         val regular = occurrence(id = 13, triggerAt = now + 60_000, snoozeCount = 0)
         val snooze = occurrence(id = 14, triggerAt = now + 120_000, snoozeCount = 1)
 
         val plan = ScheduleReconciliation.plan(
-            listOf(group), listOf(disabled), listOf(regular, snooze), now, 600_000L
+            listOf(group), listOf(autoDisabled), listOf(regular, snooze), now, 600_000L
         )
 
-        assertEquals(setOf(13L, 14L), plan.cancel.map { it.id }.toSet())
+        assertEquals(listOf(13L), plan.cancel.map { it.id })
+        assertEquals(listOf(14L), plan.reassert.map { it.id })
+        assertTrue(plan.create.isEmpty())
+    }
+
+    @Test fun disabledGroupCancelsPendingSnooze() {
+        val disabledGroup = group.copy(enabled = false)
+        val snooze = occurrence(id = 17, triggerAt = now + 120_000, snoozeCount = 1)
+
+        val plan = ScheduleReconciliation.plan(
+            listOf(disabledGroup), listOf(alarm.copy(enabled = false)), listOf(snooze), now, 600_000L
+        )
+
+        assertEquals(listOf(17L), plan.cancel.map { it.id })
         assertTrue(plan.reassert.isEmpty())
         assertTrue(plan.create.isEmpty())
     }
