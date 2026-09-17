@@ -142,6 +142,20 @@ fun SettingsScreen(vm: MainViewModel, onOpenLog: () -> Unit, onOpenReliability: 
                 OutlinedButton(onClick = { SystemSettings.openBatteryOptimizationSettings(context) }, modifier = Modifier.fillMaxWidth()) {
                     Text("バッテリー最適化の除外")
                 }
+                if (SystemSettings.isSamsungDevice()) {
+                    Text(
+                        "GalaxyではSamsung独自のスリープ制御も確認してください。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = 6.dp),
+                    )
+                    OutlinedButton(
+                        onClick = { SystemSettings.openSamsungNeverSleepingApps(context) },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text("Samsung: スリープ対象外設定")
+                    }
+                }
             }
         }
 
