@@ -323,6 +323,37 @@ class AlarmRepository(
         else -> error("Unexpected save check result")
     }
 
+    /**
+     * Removes definitions that are identical apart from their current ON/OFF state.
+     * An enabled alarm wins so an update never silently disables a working alarm.
+     */
+    suspend fun consolidateExactDuplicates(): Int = saveMutex.withLock {
+        val groups = groupDao.getAll()
+        val ungroupedIds = groups.filter { isDefaultGroupName(it.name) }.mapTo(mutableSetOf()) { it.id }
+        fun key(alarm: AlarmItem) = AlarmDefinitionKey.from(
+            alarm.withSafeSoundMode(),
+            groupIdentity = if (alarm.groupId in ungroupedIds) UNGROUPED_IDENTITY else alarm.groupId,
+        )
+        val duplicates = alarmDao.getAll()
+            .groupBy(::key)
+            .values
+            .filter { it.size > 1 }
+            .flatMap { matches ->
+                val keeper = matches.sortedWith(
+                    compareByDescending<AlarmItem> { it.enabled }.thenBy { it.id }
+                ).first()
+                matches.filter { it.id != keeper.id }
+            }
+
+        duplicates.forEach { scheduler.cancelAlarm(it.id) }
+        database.withTransaction {
+            duplicates.forEach { duplicate ->
+                alarmDao.getById(duplicate.id)?.let { alarmDao.delete(it) }
+            }
+        }
+        duplicates.size
+    }
+
     suspend fun deleteAlarm(item: AlarmItem) {
         scheduler.cancelAlarm(item.id)
         alarmDao.delete(item)

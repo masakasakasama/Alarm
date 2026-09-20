@@ -90,6 +90,7 @@ class AlarmApplication : Application() {
                     current.reliabilityStore.presetsSeeded = true
                 }
                 current.repository.ensureDefaultGroup()
+                current.repository.consolidateExactDuplicates()
             }
 
             val fingerprint = Build.FINGERPRINT ?: ""
