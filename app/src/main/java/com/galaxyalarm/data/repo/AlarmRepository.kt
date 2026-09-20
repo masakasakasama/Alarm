@@ -4,13 +4,19 @@ import com.galaxyalarm.data.dao.AlarmEventLogDao
 import com.galaxyalarm.data.dao.AlarmGroupDao
 import com.galaxyalarm.data.dao.AlarmItemDao
 import com.galaxyalarm.data.dao.ScheduledOccurrenceDao
+import com.galaxyalarm.data.db.AppDatabase
 import com.galaxyalarm.data.entity.AlarmEventLog
 import com.galaxyalarm.data.entity.AlarmGroup
 import com.galaxyalarm.data.entity.AlarmItem
 import com.galaxyalarm.data.entity.ScheduledOccurrence
 import com.galaxyalarm.data.model.SoundMode
 import com.galaxyalarm.data.model.VibrationPattern
+import com.galaxyalarm.data.model.AlarmDefinitionKey
+import com.galaxyalarm.data.model.validateForSave
 import com.galaxyalarm.scheduler.AlarmScheduler
+import androidx.room.withTransaction
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.flow.Flow
 import org.json.JSONArray
 import org.json.JSONObject
@@ -18,15 +24,19 @@ import org.json.JSONObject
 data class AlarmSaveResult(
     val alarmId: Long,
     val scheduled: Boolean,
+    val duplicateOf: Long? = null,
+    val error: String? = null,
 )
 
 class AlarmRepository(
+    private val database: AppDatabase,
     private val groupDao: AlarmGroupDao,
     private val alarmDao: AlarmItemDao,
     private val occurrenceDao: ScheduledOccurrenceDao,
     private val logDao: AlarmEventLogDao,
     private val scheduler: AlarmScheduler,
 ) {
+    private val saveMutex = Mutex()
     fun observeGroups(): Flow<List<AlarmGroup>> = groupDao.observeAll()
     fun observeAlarms(): Flow<List<AlarmItem>> = alarmDao.observeAll()
     fun observeScheduled(): Flow<List<ScheduledOccurrence>> = occurrenceDao.observeScheduled()
@@ -65,7 +75,7 @@ class AlarmRepository(
      * グループONは各アラームのOS予約成功を確認してからDBをONにする。
      * 予約失敗したアラームはOFFのまま残し、画面だけONになる状態を作らない。
      */
-    suspend fun setGroupEnabled(groupId: Long, enabled: Boolean): Boolean {
+    suspend fun setGroupEnabled(groupId: Long, enabled: Boolean): Boolean = saveMutex.withLock {
         val group = groupDao.getById(groupId)
         if (group != null && isDefaultGroupName(group.name)) return true
 
@@ -152,44 +162,42 @@ class AlarmRepository(
             PresetGroup("飛行機", emptyList()),
         )
 
-        val groupsByName = groupDao.getAll().associateBy { it.name }.toMutableMap()
-        val alarms = alarmDao.getAll().toMutableList()
-        var insertedGroups = 0
-        var insertedAlarms = 0
+        return saveMutex.withLock {
+            database.withTransaction {
+                val groupsByName = groupDao.getAll().associateBy { it.name }.toMutableMap()
+                val ungroupedIds = groupsByName.values.filter { isDefaultGroupName(it.name) }.mapTo(mutableSetOf()) { it.id }
+                val alarms = alarmDao.getAll().toMutableList()
+                var insertedGroups = 0
+                var insertedAlarms = 0
 
-        presets.forEachIndexed { index, preset ->
-            val group = groupsByName[preset.name] ?: run {
-                val id = groupDao.insert(
-                    AlarmGroup(name = preset.name, enabled = true, sortOrder = groupsByName.size + index)
-                )
-                insertedGroups += 1
-                groupDao.getById(id)!!.also { groupsByName[preset.name] = it }
-            }
-            preset.alarms.forEach { presetAlarm ->
-                val duplicate = alarms.any {
-                    it.groupId == group.id &&
-                        it.hour == presetAlarm.hour &&
-                        it.minute == presetAlarm.minute &&
-                        it.label == presetAlarm.label
-                }
-                if (!duplicate) {
-                    val id = alarmDao.insert(
-                        AlarmItem(
+                presets.forEachIndexed { index, preset ->
+                    val group = groupsByName[preset.name] ?: run {
+                        val id = groupDao.insert(
+                            AlarmGroup(name = preset.name, enabled = true, sortOrder = groupsByName.size + index)
+                        )
+                        insertedGroups += 1
+                        groupDao.getById(id)!!.also { groupsByName[preset.name] = it }
+                    }
+                    preset.alarms.forEach { presetAlarm ->
+                        val candidate = AlarmItem(
                             groupId = group.id,
                             label = presetAlarm.label,
                             hour = presetAlarm.hour,
                             minute = presetAlarm.minute,
                             enabled = false,
                             soundMode = presetAlarm.soundMode,
-                            vibrationEnabled = true
-                        )
-                    )
-                    alarmDao.getById(id)?.let { alarms += it }
-                    insertedAlarms += 1
+                            vibrationEnabled = true,
+                        ).withSafeSoundMode()
+                        if (findDuplicate(alarms, candidate, ungroupedIds, candidate.id) == null) {
+                            val id = alarmDao.insert(candidate)
+                            alarmDao.getById(id)?.let { alarms += it }
+                            insertedAlarms += 1
+                        }
+                    }
                 }
+                insertedGroups to insertedAlarms
             }
         }
-        return insertedGroups to insertedAlarms
     }
 
     /** Compatibility wrapper for callers that only need the id. */
@@ -199,63 +207,120 @@ class AlarmRepository(
      * ONで保存する場合は、OS予約成功を確認してから enabled=true を永続化する。
      * 既存アラームの予約失敗時は元データと元予約を保持する。新規作成の失敗時は仮行を削除する。
      */
-    suspend fun saveAlarmChecked(item: AlarmItem): AlarmSaveResult {
-        val normalized = item.withSafeSoundMode()
+    suspend fun saveAlarmChecked(item: AlarmItem): AlarmSaveResult = saveMutex.withLock {
+        val normalized = item.withSafeSoundMode().copy(
+            ringtoneUri = item.ringtoneUri?.takeIf(String::isNotBlank)
+        )
+        normalized.validateForSave()?.let { return@withLock AlarmSaveResult(item.id, false, error = it) }
         val wantsEnabled = normalized.enabled
         val now = System.currentTimeMillis()
+        val ungroupedIds = groupDao.getAll().filter { isDefaultGroupName(it.name) }.mapTo(mutableSetOf()) { it.id }
+        if (groupDao.getById(normalized.groupId) == null) {
+            return@withLock AlarmSaveResult(item.id, false, error = "選択したグループが見つかりません。")
+        }
 
         if (!wantsEnabled) {
-            val id = if (normalized.id == 0L) {
-                alarmDao.insert(normalized.copy(enabled = false))
-            } else {
-                scheduler.cancelAlarm(normalized.id)
-                alarmDao.update(normalized.copy(enabled = false, updatedAt = now))
-                normalized.id
+            val preview = database.withTransaction {
+                val current = if (normalized.id > 0L) alarmDao.getById(normalized.id) else null
+                if (normalized.id > 0L && current == null) return@withTransaction SaveCheck.Invalid
+                val duplicate = findDuplicate(alarmDao.getAll(), normalized, ungroupedIds, normalized.id)
+                if (duplicate != null) return@withTransaction SaveCheck.Duplicate(duplicate.id)
+                SaveCheck.Ready
             }
-            return AlarmSaveResult(id, true)
+            when (preview) {
+                is SaveCheck.Duplicate -> return@withLock AlarmSaveResult(item.id, false, duplicateOf = preview.id)
+                SaveCheck.Invalid -> return@withLock AlarmSaveResult(item.id, false, error = "アラームが見つかりません。")
+                else -> Unit
+            }
+            if (normalized.id > 0L) scheduler.cancelAlarm(normalized.id)
+            val saved = database.withTransaction {
+                val duplicate = findDuplicate(alarmDao.getAll(), normalized, ungroupedIds, normalized.id)
+                if (duplicate != null) return@withTransaction SaveCheck.Duplicate(duplicate.id)
+                val id = if (normalized.id == 0L) alarmDao.insert(normalized.copy(enabled = false))
+                else {
+                    alarmDao.update(normalized.copy(enabled = false, updatedAt = now))
+                    normalized.id
+                }
+                SaveCheck.Saved(id)
+            }
+            return@withLock saved.toResult()
         }
 
-        if (normalized.id == 0L) {
-            // AlarmManagerのrequestを作るにはalarmIdが必要なので、OFF状態の仮行だけ先に作る。
-            val stagedId = alarmDao.insert(normalized.copy(enabled = false))
-            val candidate = normalized.copy(id = stagedId, enabled = true, updatedAt = now)
-            enableGroupForAlarm(candidate.groupId)
-            val scheduled = scheduler.replaceAlarm(candidate)
-            if (!scheduled) {
-                runCatching { scheduler.cancelAlarm(stagedId) }
-                alarmDao.getById(stagedId)?.let { alarmDao.delete(it) }
-                return AlarmSaveResult(0L, false)
-            }
-            return try {
-                alarmDao.update(candidate)
-                AlarmSaveResult(stagedId, true)
-            } catch (error: Exception) {
-                runCatching { scheduler.cancelAlarm(stagedId) }
-                alarmDao.getById(stagedId)?.let { runCatching { alarmDao.delete(it) } }
-                throw error
-            }
+        val current = if (normalized.id > 0L) alarmDao.getById(normalized.id) else null
+        if (normalized.id > 0L && current == null) {
+            return@withLock AlarmSaveResult(normalized.id, false, error = "編集対象のアラームが見つかりません。")
         }
-
-        val original = alarmDao.getById(normalized.id)
-            ?: return AlarmSaveResult(normalized.id, false)
         val candidate = normalized.copy(enabled = true, updatedAt = now)
-        enableGroupForAlarm(candidate.groupId)
-        val scheduled = scheduler.replaceAlarm(candidate)
-        if (!scheduled) {
-            // replaceAlarmは失敗時に旧予約を保持するためDBも元のままにする。
-            return AlarmSaveResult(original.id, false)
+        val checked = database.withTransaction {
+            val duplicate = findDuplicate(alarmDao.getAll(), candidate, ungroupedIds, candidate.id)
+            if (duplicate != null) return@withTransaction SaveCheck.Duplicate(duplicate.id)
+            if (candidate.id == 0L) {
+                // Reserve a unique row before scheduling; keep it OFF until the OS accepts it.
+                SaveCheck.Staged(alarmDao.insert(candidate.copy(enabled = false)))
+            } else {
+                SaveCheck.Ready
+            }
+        }
+        when (checked) {
+            is SaveCheck.Duplicate -> return@withLock AlarmSaveResult(item.id, false, duplicateOf = checked.id)
+            SaveCheck.Invalid -> return@withLock AlarmSaveResult(item.id, false, error = "編集対象のアラームが見つかりません。")
+            else -> Unit
         }
 
-        return try {
-            alarmDao.update(candidate)
-            AlarmSaveResult(candidate.id, true)
+        val id = when (checked) {
+            is SaveCheck.Staged -> checked.id
+            else -> candidate.id
+        }
+        val scheduledAlarm = candidate.copy(id = id)
+        enableGroupForAlarm(scheduledAlarm.groupId)
+        if (!scheduler.replaceAlarm(scheduledAlarm)) {
+            if (checked is SaveCheck.Staged) {
+                runCatching { scheduler.cancelAlarm(id) }
+                database.withTransaction { alarmDao.getById(id)?.let { alarmDao.delete(it) } }
+            }
+            return@withLock AlarmSaveResult(if (checked is SaveCheck.Staged) 0L else id, false)
+        }
+
+        try {
+            database.withTransaction { alarmDao.update(scheduledAlarm) }
+            AlarmSaveResult(id, true)
         } catch (error: Exception) {
-            // DB更新だけ失敗した場合は、可能な限り元の予約状態へ戻す。
             runCatching {
-                if (original.enabled) scheduler.replaceAlarm(original) else scheduler.cancelAlarm(original.id)
+                if (current?.enabled == true) scheduler.replaceAlarm(current) else scheduler.cancelAlarm(id)
+            }
+            if (checked is SaveCheck.Staged) {
+                database.withTransaction { alarmDao.getById(id)?.let { alarmDao.delete(it) } }
             }
             throw error
         }
+    }
+
+    private suspend fun findDuplicate(
+        existing: List<AlarmItem>,
+        candidate: AlarmItem,
+        ungroupedIds: Set<Long>,
+        excludingId: Long,
+    ): AlarmItem? {
+        fun key(alarm: AlarmItem) = AlarmDefinitionKey.from(
+            alarm.withSafeSoundMode(),
+            groupIdentity = if (alarm.groupId in ungroupedIds) UNGROUPED_IDENTITY else alarm.groupId,
+        )
+        return existing.firstOrNull { it.id != excludingId && key(it) == key(candidate) }
+    }
+
+    private sealed interface SaveCheck {
+        data object Ready : SaveCheck
+        data class Staged(val id: Long) : SaveCheck
+        data class Saved(val id: Long) : SaveCheck
+        data class Duplicate(val id: Long) : SaveCheck
+        data object Invalid : SaveCheck
+    }
+
+    private fun SaveCheck.toResult(): AlarmSaveResult = when (this) {
+        is SaveCheck.Saved -> AlarmSaveResult(id, true)
+        is SaveCheck.Duplicate -> AlarmSaveResult(0L, false, duplicateOf = id)
+        SaveCheck.Invalid -> AlarmSaveResult(0L, false, error = "アラームが見つかりません。")
+        else -> error("Unexpected save check result")
     }
 
     suspend fun deleteAlarm(item: AlarmItem) {
@@ -264,7 +329,11 @@ class AlarmRepository(
     }
 
     /** ONは予約成功後、OFFは予約取消成功後にDBへ反映する。 */
-    suspend fun setAlarmEnabled(alarmId: Long, enabled: Boolean): Boolean {
+    suspend fun setAlarmEnabled(alarmId: Long, enabled: Boolean): Boolean = saveMutex.withLock {
+        setAlarmEnabledLocked(alarmId, enabled)
+    }
+
+    private suspend fun setAlarmEnabledLocked(alarmId: Long, enabled: Boolean): Boolean {
         val alarm = alarmDao.getById(alarmId) ?: return false
         val now = System.currentTimeMillis()
 
@@ -333,91 +402,87 @@ class AlarmRepository(
                         .put("snoozeEnabled", alarm.snoozeEnabled)
                         .put("snoozeMinutes", alarm.snoozeMinutes)
                         .put("maxSnoozeCount", alarm.maxSnoozeCount)
-                        .put("autoStopMinutes", alarm.autoStopMinutes))
+                        .put("autoStopMinutes", alarm.autoStopMinutes)
+                        .put("fadeInSeconds", alarm.fadeInSeconds))
                 }
             })
             .toString()
     }
 
-    suspend fun mergeBackupJson(jsonText: String): Pair<Int, Int> {
+    suspend fun mergeBackupJson(jsonText: String): Pair<Int, Int> = saveMutex.withLock {
         val json = JSONObject(jsonText)
         val groupsJson = json.optJSONArray("groups") ?: JSONArray()
         val alarmsJson = json.optJSONArray("alarms") ?: JSONArray()
-        val groupIdMap = mutableMapOf<Long, Long>()
-        var insertedGroups = 0
-        val groupsByName = groupDao.getAll().associateBy { it.name }.toMutableMap()
+        val imported = database.withTransaction {
+            val groupIdMap = mutableMapOf<Long, Long>()
+            var insertedGroups = 0
+            val groupsByName = groupDao.getAll().associateBy { it.name }.toMutableMap()
 
-        for (i in 0 until groupsJson.length()) {
-            val groupJson = groupsJson.getJSONObject(i)
-            val oldId = groupJson.optLong("localId", 0L)
-            val name = groupJson.optString("name").ifBlank { DEFAULT_GROUP_NAME }
-            if (isDefaultGroupName(name)) {
-                groupIdMap[oldId] = ensureDefaultGroup()
-                continue
-            }
-            val local = groupsByName[name] ?: run {
-                val id = groupDao.insert(
-                    AlarmGroup(
-                        name = name,
-                        enabled = groupJson.optBoolean("enabled", true),
-                        sortOrder = groupJson.optInt("sortOrder", groupsByName.size)
+            for (i in 0 until groupsJson.length()) {
+                val groupJson = groupsJson.getJSONObject(i)
+                val oldId = groupJson.optLong("localId", 0L)
+                val name = groupJson.optString("name").ifBlank { DEFAULT_GROUP_NAME }
+                if (isDefaultGroupName(name)) {
+                    groupIdMap[oldId] = ensureDefaultGroup()
+                    continue
+                }
+                val local = groupsByName[name] ?: run {
+                    val id = groupDao.insert(
+                        AlarmGroup(
+                            name = name,
+                            enabled = groupJson.optBoolean("enabled", true),
+                            sortOrder = groupJson.optInt("sortOrder", groupsByName.size)
+                        )
                     )
-                )
-                insertedGroups += 1
-                groupDao.getById(id)!!.also { groupsByName[name] = it }
+                    insertedGroups += 1
+                    groupDao.getById(id)!!.also { groupsByName[name] = it }
+                }
+                groupIdMap[oldId] = local.id
             }
-            groupIdMap[oldId] = local.id
-        }
 
-        var insertedAlarms = 0
-        val existingAlarms = alarmDao.getAll().toMutableList()
-        for (i in 0 until alarmsJson.length()) {
-            val alarmJson = alarmsJson.getJSONObject(i)
-            val groupName = alarmJson.optString("groupName").ifBlank { DEFAULT_GROUP_NAME }
-            val groupId = groupIdMap[alarmJson.optLong("groupLocalId", 0L)]
-                ?: groupsByName[groupName]?.id
-                ?: ensureDefaultGroup()
-            val label = alarmJson.optString("label")
-            val hour = alarmJson.optInt("hour")
-            val minute = alarmJson.optInt("minute")
-            val weekdaysMask = alarmJson.optInt("weekdaysMask")
-            val duplicate = existingAlarms.any {
-                it.groupId == groupId &&
-                    it.label == label &&
-                    it.hour == hour &&
-                    it.minute == minute &&
-                    it.weekdaysMask == weekdaysMask
-            }
-            if (duplicate) continue
+            val ungroupedIds = groupDao.getAll().filter { isDefaultGroupName(it.name) }.mapTo(mutableSetOf()) { it.id }
+            val existingAlarms = alarmDao.getAll().toMutableList()
+            val pendingScheduleIds = mutableListOf<Long>()
+            var insertedAlarms = 0
+            for (i in 0 until alarmsJson.length()) {
+                val alarmJson = alarmsJson.getJSONObject(i)
+                val groupName = alarmJson.optString("groupName").ifBlank { DEFAULT_GROUP_NAME }
+                val groupId = groupIdMap[alarmJson.optLong("groupLocalId", 0L)]
+                    ?: groupsByName[groupName]?.id
+                    ?: ensureDefaultGroup()
+                val desiredEnabled = alarmJson.optBoolean("enabled", true)
+                val ringtoneUri = if (alarmJson.isNull("ringtoneUri")) null
+                    else alarmJson.optString("ringtoneUri").takeIf(String::isNotBlank)
+                val item = AlarmItem(
+                    groupId = groupId,
+                    label = alarmJson.optString("label"),
+                    hour = alarmJson.optInt("hour"),
+                    minute = alarmJson.optInt("minute"),
+                    weekdaysMask = alarmJson.optInt("weekdaysMask"),
+                    enabled = desiredEnabled,
+                    soundMode = enumValueFromBackup(alarmJson.optString("soundMode"), SoundMode.SOUND),
+                    ringtoneUri = ringtoneUri,
+                    vibrationEnabled = alarmJson.optBoolean("vibrationEnabled", true),
+                    vibrationPattern = enumValueFromBackup(alarmJson.optString("vibrationPattern"), VibrationPattern.SHORT),
+                    snoozeEnabled = alarmJson.optBoolean("snoozeEnabled", true),
+                    snoozeMinutes = alarmJson.optInt("snoozeMinutes", 5),
+                    maxSnoozeCount = alarmJson.optInt("maxSnoozeCount", 3),
+                    autoStopMinutes = alarmJson.optInt("autoStopMinutes", 5),
+                    fadeInSeconds = alarmJson.optInt("fadeInSeconds", 0),
+                ).withSafeSoundMode()
+                item.validateForSave()?.let { throw IllegalArgumentException("バックアップの設定が不正です: $it") }
+                if (findDuplicate(existingAlarms, item, ungroupedIds, item.id) != null) continue
 
-            val desiredEnabled = alarmJson.optBoolean("enabled", true)
-            val item = AlarmItem(
-                groupId = groupId,
-                label = label,
-                hour = hour,
-                minute = minute,
-                weekdaysMask = weekdaysMask,
-                // 復元直後は必ずOFF。OS予約に成功したものだけ後でONへ昇格させる。
-                enabled = false,
-                soundMode = enumValueOrDefault(alarmJson.optString("soundMode"), SoundMode.SOUND),
-                ringtoneUri = alarmJson.optString("ringtoneUri").ifBlank { null },
-                vibrationEnabled = alarmJson.optBoolean("vibrationEnabled", true),
-                vibrationPattern = enumValueOrDefault(alarmJson.optString("vibrationPattern"), VibrationPattern.SHORT),
-                snoozeEnabled = alarmJson.optBoolean("snoozeEnabled", true),
-                snoozeMinutes = alarmJson.optInt("snoozeMinutes", 5),
-                maxSnoozeCount = alarmJson.optInt("maxSnoozeCount", 3),
-                autoStopMinutes = alarmJson.optInt("autoStopMinutes", 5)
-            ).withSafeSoundMode()
-            val id = alarmDao.insert(item)
-            if (desiredEnabled) {
-                // 権限不足やAlarmManager失敗時はOFFのまま残す。ON表示だけ復元される状態を禁止する。
-                setAlarmEnabled(id, true)
+                val id = alarmDao.insert(item.copy(enabled = false))
+                alarmDao.getById(id)?.let { existingAlarms += it.copy(enabled = desiredEnabled) }
+                if (desiredEnabled) pendingScheduleIds += id
+                insertedAlarms += 1
             }
-            alarmDao.getById(id)?.let { existingAlarms += it }
-            insertedAlarms += 1
+            ImportResult(insertedGroups, insertedAlarms, pendingScheduleIds)
         }
+        imported.pendingScheduleIds.forEach { setAlarmEnabledLocked(it, true) }
         rescheduleAll("github-backup-restore")
-        return insertedGroups to insertedAlarms
+        imported.insertedGroups to imported.insertedAlarms
     }
 
     private suspend fun enableGroupsForEnabledAlarms() {
@@ -446,8 +511,11 @@ class AlarmRepository(
             this
         }
 
-    private inline fun <reified T : Enum<T>> enumValueOrDefault(name: String, default: T): T =
-        runCatching { enumValueOf<T>(name) }.getOrDefault(default)
+    private inline fun <reified T : Enum<T>> enumValueFromBackup(name: String, default: T): T =
+        if (name.isBlank()) default else runCatching { enumValueOf<T>(name) }
+            .getOrElse { throw IllegalArgumentException("バックアップに未対応の設定があります: $name") }
+
+    private data class ImportResult(val insertedGroups: Int, val insertedAlarms: Int, val pendingScheduleIds: List<Long>)
 
     private data class PresetGroup(
         val name: String,
@@ -463,6 +531,7 @@ class AlarmRepository(
 
     companion object {
         const val DEFAULT_GROUP_NAME = "グループなし"
+        private const val UNGROUPED_IDENTITY = Long.MIN_VALUE
         private val LEGACY_DEFAULT_GROUP_NAMES = setOf(
             DEFAULT_GROUP_NAME,
             "既定グループ",

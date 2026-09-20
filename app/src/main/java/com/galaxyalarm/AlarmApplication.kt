@@ -32,6 +32,7 @@ class AppContainer(app: Application) {
         permissions = permissions,
     )
     val repository = AlarmRepository(
+        database = db,
         groupDao = db.groupDao(),
         alarmDao = db.alarmDao(),
         occurrenceDao = db.occurrenceDao(),

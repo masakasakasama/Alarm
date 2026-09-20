@@ -161,6 +161,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     /** アラームを複製(長押し用)。同じグループに同設定のコピーを作る。 */
     fun duplicateAlarm(alarm: AlarmItem) = viewModelScope.launch {
         val result = repo.saveAlarmChecked(alarm.copy(id = 0L))
+        if (result.duplicateOf != null) {
+            Toast.makeText(appContext, "同じ設定のアラームがすでにあります", Toast.LENGTH_LONG).show()
+            return@launch
+        }
         if (!result.scheduled) {
             Toast.makeText(appContext, "複製したアラームを予約できませんでした", Toast.LENGTH_LONG).show()
         }

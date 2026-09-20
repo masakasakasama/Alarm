@@ -76,6 +76,7 @@ fun AlarmsScreen(
     vm: MainViewModel,
     onAddAlarm: () -> Unit,
     onEditAlarm: (Long) -> Unit,
+    onDuplicateAlarm: (Long) -> Unit,
     onOpenGroup: (Long) -> Unit,
     groupId: Long? = null,
 ) {
@@ -185,7 +186,7 @@ fun AlarmsScreen(
             title = { Text(TimeFormat.hourMinute12(target.alarm.hour, target.alarm.minute) + " のアラーム") },
             text = { Text("操作を選んでください。") },
             confirmButton = {
-                TextButton(onClick = { vm.duplicateAlarm(target.alarm); actionTarget = null }) { Text("複製") }
+                TextButton(onClick = { onDuplicateAlarm(target.alarm.id); actionTarget = null }) { Text("複製") }
             },
             dismissButton = {
                 Row {

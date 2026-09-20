@@ -16,6 +16,7 @@ import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
@@ -29,6 +30,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -45,6 +47,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.galaxyalarm.data.model.SoundMode
+import com.galaxyalarm.data.repo.AlarmSaveResult
 import com.galaxyalarm.data.model.VibrationPattern
 import com.galaxyalarm.data.model.Weekdays
 import com.galaxyalarm.ui.TimeFormat
@@ -57,8 +60,15 @@ private val PmColor = Color(0xFFCE93D8)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun EditAlarmScreen(alarmId: Long, groupId: Long = 0L, onDone: () -> Unit, vm: EditAlarmViewModel = viewModel()) {
-    LaunchedEffect(alarmId, groupId) { vm.load(alarmId, groupId) }
+fun EditAlarmScreen(
+    alarmId: Long,
+    groupId: Long = 0L,
+    duplicate: Boolean = false,
+    onDone: () -> Unit,
+    onOpenExisting: (Long) -> Unit = {},
+    vm: EditAlarmViewModel = viewModel(),
+) {
+    LaunchedEffect(alarmId, groupId, duplicate) { vm.load(alarmId, groupId, duplicate) }
     val draft by vm.draft.collectAsStateWithLifecycle()
     val groups by vm.groups.collectAsStateWithLifecycle()
     val alarm = draft ?: return
@@ -66,6 +76,7 @@ fun EditAlarmScreen(alarmId: Long, groupId: Long = 0L, onDone: () -> Unit, vm: E
 
     var optionsExpanded by remember { mutableStateOf(false) }
     var showDeleteConfirm by remember(alarm.id) { mutableStateOf(false) }
+    var duplicateAlarmId by remember { mutableStateOf<Long?>(null) }
 
     Column(
         Modifier
@@ -75,7 +86,7 @@ fun EditAlarmScreen(alarmId: Long, groupId: Long = 0L, onDone: () -> Unit, vm: E
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
         Text(
-            if (alarmId > 0) "アラームを編集" else "アラームを追加",
+            if (alarmId > 0 && !duplicate) "アラームを編集" else "アラームを追加",
             style = MaterialTheme.typography.headlineLarge,
             fontWeight = FontWeight.Bold
         )
@@ -240,8 +251,18 @@ fun EditAlarmScreen(alarmId: Long, groupId: Long = 0L, onDone: () -> Unit, vm: E
             }
         }
 
-        Button(onClick = { vm.save(onDone) }, modifier = Modifier.fillMaxWidth()) { Text("保存") }
-        if (alarmId > 0) {
+        Button(
+            onClick = {
+                vm.save { result ->
+                    when {
+                        result.duplicateOf != null -> duplicateAlarmId = result.duplicateOf
+                        result.scheduled -> onDone()
+                    }
+                }
+            },
+            modifier = Modifier.fillMaxWidth()
+        ) { Text("保存") }
+        if (alarmId > 0 && !duplicate) {
             OutlinedButton(
                 onClick = { showDeleteConfirm = true },
                 modifier = Modifier.fillMaxWidth(),
@@ -260,6 +281,23 @@ fun EditAlarmScreen(alarmId: Long, groupId: Long = 0L, onDone: () -> Unit, vm: E
                 vm.delete(onDone)
             },
             onDismiss = { showDeleteConfirm = false },
+        )
+    }
+
+    duplicateAlarmId?.let { existingId ->
+        AlertDialog(
+            onDismissRequest = { duplicateAlarmId = null },
+            title = { Text("同じ設定のアラームがあります") },
+            text = { Text("重複を追加せず、既存のアラームを開きますか？") },
+            confirmButton = {
+                TextButton(onClick = {
+                    duplicateAlarmId = null
+                    onOpenExisting(existingId)
+                }) { Text("既存を開く") }
+            },
+            dismissButton = {
+                TextButton(onClick = { duplicateAlarmId = null }) { Text("編集に戻る") }
+            },
         )
     }
 }

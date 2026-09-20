@@ -10,6 +10,7 @@ import com.galaxyalarm.backup.GitHubBackupStore
 import com.galaxyalarm.data.entity.AlarmGroup
 import com.galaxyalarm.data.entity.AlarmItem
 import com.galaxyalarm.data.model.SoundMode
+import com.galaxyalarm.data.repo.AlarmSaveResult
 import com.galaxyalarm.widget.NextAlarmWidgetProvider
 import java.util.Calendar
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -23,12 +24,12 @@ class EditAlarmViewModel(app: Application) : AndroidViewModel(app) {
     val draft = MutableStateFlow<AlarmItem?>(null)
     val groups = MutableStateFlow<List<AlarmGroup>>(emptyList())
 
-    fun load(alarmId: Long, presetGroupId: Long = 0L) = viewModelScope.launch {
+    fun load(alarmId: Long, presetGroupId: Long = 0L, duplicate: Boolean = false) = viewModelScope.launch {
         val ungroupedId = repo.ensureDefaultGroup()
         val allGroups = repo.getGroups()
         groups.value = allGroups
         draft.value = if (alarmId > 0) {
-            repo.getAlarm(alarmId)?.withoutSilent()
+            repo.getAlarm(alarmId)?.let { if (duplicate) it.copy(id = 0L) else it }?.withoutSilent()
         } else {
             val now = Calendar.getInstance()
             // グループ詳細から追加した場合はそのグループに所属させる。無ければ未グループ。
@@ -49,22 +50,28 @@ class EditAlarmViewModel(app: Application) : AndroidViewModel(app) {
         draft.value = draft.value?.let(transform)?.withoutSilent()
     }
 
-    fun save(onDone: () -> Unit) = viewModelScope.launch {
+    fun save(onResult: (AlarmSaveResult) -> Unit) = viewModelScope.launch {
         val item = draft.value ?: return@launch
         val result = repo.saveAlarmChecked(item.withoutSilent().copy(enabled = true))
+        if (result.duplicateOf != null) {
+            onResult(result)
+            return@launch
+        }
         if (!result.scheduled) {
             container.reliabilityChecker.runCheck()
             Toast.makeText(
                 appContext,
-                "アラームを予約できませんでした。現在の設定は変更していません。権限を確認して再度保存してください",
+                result.error ?: "アラームを予約できませんでした。現在の設定は変更していません。権限を確認して再度保存してください",
                 Toast.LENGTH_LONG,
             ).show()
+            onResult(result)
             return@launch
         }
 
+        draft.value = draft.value?.copy(id = result.alarmId)
         refreshWidgets()
         backupIfConfigured()
-        onDone()
+        onResult(result)
     }
 
     fun delete(onDone: () -> Unit) = viewModelScope.launch {

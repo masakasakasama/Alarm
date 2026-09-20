@@ -97,6 +97,7 @@ fun AppNavigation(editAlarmRequest: Long? = null) {
                     vm = mainVm,
                     onAddAlarm = { navController.navigate("edit/0") },
                     onEditAlarm = { id -> navController.navigate("edit/$id") },
+                    onDuplicateAlarm = { id -> navController.navigate("edit/copy/$id") },
                     onOpenGroup = { id -> navController.navigate("alarms/group/$id") }
                 )
             }
@@ -108,6 +109,7 @@ fun AppNavigation(editAlarmRequest: Long? = null) {
                     // グループ詳細からの追加は、そのグループを初期所属にする。
                     onAddAlarm = { navController.navigate("edit/0/$groupId") },
                     onEditAlarm = { id -> navController.navigate("edit/$id") },
+                    onDuplicateAlarm = { id -> navController.navigate("edit/copy/$id") },
                     onOpenGroup = { id -> navController.navigate("alarms/group/$id") }
                 )
             }
@@ -132,12 +134,30 @@ fun AppNavigation(editAlarmRequest: Long? = null) {
             composable("log") { EventLogScreen(mainVm, onBack = { navController.popBackStack() }) }
             composable("edit/{alarmId}") { entry ->
                 val id = entry.arguments?.getString("alarmId")?.toLongOrNull() ?: 0L
-                EditAlarmScreen(alarmId = id, onDone = { navController.popBackStack() })
+                EditAlarmScreen(
+                    alarmId = id,
+                    onDone = { navController.popBackStack() },
+                    onOpenExisting = { existingId -> navController.navigate("edit/$existingId") },
+                )
+            }
+            composable("edit/copy/{alarmId}") { entry ->
+                val id = entry.arguments?.getString("alarmId")?.toLongOrNull() ?: 0L
+                EditAlarmScreen(
+                    alarmId = id,
+                    duplicate = true,
+                    onDone = { navController.popBackStack() },
+                    onOpenExisting = { existingId -> navController.navigate("edit/$existingId") },
+                )
             }
             composable("edit/{alarmId}/{groupId}") { entry ->
                 val id = entry.arguments?.getString("alarmId")?.toLongOrNull() ?: 0L
                 val gid = entry.arguments?.getString("groupId")?.toLongOrNull() ?: 0L
-                EditAlarmScreen(alarmId = id, groupId = gid, onDone = { navController.popBackStack() })
+                EditAlarmScreen(
+                    alarmId = id,
+                    groupId = gid,
+                    onDone = { navController.popBackStack() },
+                    onOpenExisting = { existingId -> navController.navigate("edit/$existingId") },
+                )
             }
         }
     }
