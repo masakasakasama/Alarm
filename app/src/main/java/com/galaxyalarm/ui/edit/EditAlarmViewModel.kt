@@ -52,7 +52,28 @@ class EditAlarmViewModel(app: Application) : AndroidViewModel(app) {
 
     fun save(onResult: (AlarmSaveResult) -> Unit) = viewModelScope.launch {
         val item = draft.value ?: return@launch
-        val result = repo.saveAlarmChecked(item.withoutSilent().copy(enabled = true))
+        val requested = item.withoutSilent().copy(enabled = true)
+        val saveResult = repo.saveAlarmChecked(requested)
+
+        // 「追加」は常にONで保存する操作。
+        // 同じ定義が既にある場合は重複を増やさず、その既存アラームをONにして完了する。
+        // 編集中の重複だけは従来どおり確認ダイアログへ返す。
+        val result = if (saveResult.duplicateOf != null && item.id == 0L) {
+            val existingId = saveResult.duplicateOf
+            val enabled = repo.setAlarmEnabled(existingId, true)
+            if (enabled) {
+                AlarmSaveResult(alarmId = existingId, scheduled = true)
+            } else {
+                AlarmSaveResult(
+                    alarmId = existingId,
+                    scheduled = false,
+                    error = "同じ設定の既存アラームをONにできませんでした。権限と予約状態を確認してください"
+                )
+            }
+        } else {
+            saveResult
+        }
+
         if (result.duplicateOf != null) {
             onResult(result)
             return@launch
@@ -68,7 +89,7 @@ class EditAlarmViewModel(app: Application) : AndroidViewModel(app) {
             return@launch
         }
 
-        draft.value = draft.value?.copy(id = result.alarmId)
+        draft.value = draft.value?.copy(id = result.alarmId, enabled = true)
         refreshWidgets()
         backupIfConfigured()
         onResult(result)
