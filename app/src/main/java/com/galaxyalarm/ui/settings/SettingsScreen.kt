@@ -67,9 +67,9 @@ fun SettingsScreen(vm: MainViewModel, onOpenLog: () -> Unit, onOpenReliability: 
 
         SectionCard(Modifier.fillMaxWidth()) {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("アラーム音", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+                Text("アラーム・タイマー音", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Text("フェードイン (徐々に音量を上げる)", modifier = Modifier.weight(1f))
+                    Text("フェードイン (アラーム・タイマー共通)", modifier = Modifier.weight(1f))
                     Switch(
                         checked = fadeInSeconds > 0,
                         onCheckedChange = {
