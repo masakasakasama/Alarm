@@ -250,7 +250,14 @@ class AlarmService : Service() {
         com.galaxyalarm.timer.TimerController.onFired(this, timerId)
         val mode = if (soundOn) com.galaxyalarm.data.model.SoundMode.SOUND
         else com.galaxyalarm.data.model.SoundMode.VIBRATE_ONLY
-        ringTransient(com.galaxyalarm.timer.TimerController.occurrenceId(timerId), "タイマー", "タイマー終了", mode)
+        ringTransient(
+            id = com.galaxyalarm.timer.TimerController.occurrenceId(timerId),
+            label = "タイマー",
+            timeText = "タイマー終了",
+            soundMode = mode,
+            fadeInSeconds = globalPrefs.fadeInSeconds,
+            fadeInStartVolume = globalPrefs.fadeInStartVolume,
+        )
     }
 
     /** テスト鳴動: 信頼性チェックから即時に鳴らして経路(音/全画面/通知)を確認する。 */
@@ -264,6 +271,8 @@ class AlarmService : Service() {
         label: String,
         timeText: String,
         soundMode: com.galaxyalarm.data.model.SoundMode,
+        fadeInSeconds: Int = 0,
+        fadeInStartVolume: Int = GlobalAlarmPrefs.DEFAULT_FADE_IN_START_VOLUME,
     ) {
         if (stopping || dismissalStore.isDismissed(id)) return
         acquireWakeLock()
@@ -279,7 +288,9 @@ class AlarmService : Service() {
                 soundMode,
                 null,
                 true,
-                com.galaxyalarm.data.model.VibrationPattern.SHORT
+                com.galaxyalarm.data.model.VibrationPattern.SHORT,
+                fadeInSeconds,
+                fadeInStartVolume,
             )
             if (shouldLaunchFullScreen()) launchRingActivity(id, -1L)
             scheduleAutoStop(id, 5)
