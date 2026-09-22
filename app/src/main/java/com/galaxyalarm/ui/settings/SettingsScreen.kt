@@ -149,6 +149,18 @@ fun SettingsScreen(vm: MainViewModel, onOpenLog: () -> Unit, onOpenReliability: 
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(top = 6.dp),
                     )
+                    Text(
+                        "「Galaxy 時計」が一覧に出ない場合は、アプリ情報 > バッテリーが「制限なし」になっていないか確認してください。制限なしの場合、Samsungの追加候補に表示されないことがあり、そのままでOKです。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = 4.dp, bottom = 4.dp),
+                    )
+                    OutlinedButton(
+                        onClick = { SystemSettings.openAppDetails(context) },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text("Galaxy 時計のアプリ情報を開く")
+                    }
                     OutlinedButton(
                         onClick = { SystemSettings.openSamsungNeverSleepingApps(context) },
                         modifier = Modifier.fillMaxWidth(),
