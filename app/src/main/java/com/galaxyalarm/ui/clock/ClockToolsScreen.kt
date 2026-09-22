@@ -297,6 +297,11 @@ private fun ActiveTimerCard(entry: TimerEntry, onCancel: () -> Unit) {
                 Text(formatSeconds(remaining), style = MaterialTheme.typography.displayLarge, fontWeight = FontWeight.Bold)
                 StatusPill(if (entry.soundOn) "音あり" else "音なし", if (entry.soundOn) PillLevel.OK else PillLevel.WARN)
             }
+            Text(
+                "終了: ${TimeFormat.nextTrigger(entry.endAt, nowTick)}",
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
             Spacer(Modifier.height(10.dp))
             Button(onClick = onCancel, modifier = Modifier.fillMaxWidth()) { Text("キャンセル") }
         }
@@ -406,6 +411,11 @@ fun RunningTimerCard() {
                     style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 Text(formatSeconds(remaining), style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+                Text(
+                    "終了: ${TimeFormat.nextTrigger(nearest.endAt, nowTick)}",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
             OutlinedButton(onClick = { TimerController.cancel(context, nearest.id) }) { Text("キャンセル") }
         }
