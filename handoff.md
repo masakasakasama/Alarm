@@ -1,3 +1,14 @@
+# Alarm — current handoff (2026-10-02)
+
+最新状態は `CODEX_STATE.md`。現在はmain / v2.2.14 / versionCode 69 / SDK 36。
+この司令塔でJDK 17 + SDK 36によるtestDebugUnitTest、lintDebug、assembleDebugが成功し、単体テスト39件を確認した。
+実Galaxyでの鳴動、再起動/PIN前、Doze、権限失効、上書き更新の手動試験は未実施。
+次はREADMEの手動試験を実機で行う。実機なしで信頼性合格とはしない。
+
+以下は2026-06-07時点の歴史資料で、現在のバージョン・配布・SDK・未実装事項の判断には使わない。
+
+---
+
 # handoff.md — 次の作業者へ
 
 このファイルを読めば続きから進められるようにしてあります。
