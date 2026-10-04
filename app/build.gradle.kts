@@ -22,8 +22,8 @@ android {
         applicationId = "com.galaxyalarm"
         minSdk = 26
         targetSdk = 36
-        versionCode = 69
-        versionName = "2.2.14"
+        versionCode = 71
+        versionName = "2.2.16"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }
     }
@@ -70,6 +70,9 @@ android {
         compose = true
         buildConfig = true
     }
+    testOptions {
+        unitTests.isIncludeAndroidResources = true
+    }
     lint {
         abortOnError = true
         checkReleaseBuilds = true
@@ -107,6 +110,7 @@ dependencies {
     implementation(libs.kotlinx.coroutines.android)
 
     testImplementation(libs.junit)
+    testImplementation("org.robolectric:robolectric:4.14.1")
     testImplementation(libs.kotlinx.coroutines.test)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.test.runner)

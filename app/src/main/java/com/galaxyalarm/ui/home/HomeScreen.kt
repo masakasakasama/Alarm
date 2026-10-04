@@ -26,6 +26,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.galaxyalarm.ui.MainViewModel
 import com.galaxyalarm.ui.SystemSettings
 import com.galaxyalarm.ui.TimeFormat
+import com.galaxyalarm.ui.rememberCurrentTimeMillis
 import com.galaxyalarm.ui.components.BigStat
 import com.galaxyalarm.ui.components.PillLevel
 import com.galaxyalarm.ui.components.SectionCard
@@ -44,6 +45,7 @@ fun HomeScreen(
     val report by vm.report.collectAsStateWithLifecycle()
     val next by vm.nextAlarmRow.collectAsStateWithLifecycle()
     val groups by vm.groupRows.collectAsStateWithLifecycle()
+    val now = rememberCurrentTimeMillis()
 
     LazyColumn(
         modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
@@ -100,7 +102,7 @@ fun HomeScreen(
                             fontWeight = FontWeight.Bold
                         )
                         Text(
-                            "${n.alarm.label.ifBlank { "アラーム" }} ・ ${TimeFormat.nextTrigger(n.nextTriggerAt)} ・ ${TimeFormat.remaining(n.nextTriggerAt)}",
+                            "${n.alarm.label.ifBlank { "アラーム" }} ・ ${TimeFormat.nextTrigger(n.nextTriggerAt, now)} ・ ${TimeFormat.remaining(n.nextTriggerAt, now)}",
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             style = MaterialTheme.typography.bodyMedium
                         )

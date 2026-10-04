@@ -5,6 +5,7 @@ import androidx.room.Delete
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
+import androidx.room.Transaction
 import androidx.room.Update
 import com.galaxyalarm.data.entity.AlarmEventLog
 import com.galaxyalarm.data.entity.AlarmGroup
@@ -57,6 +58,27 @@ interface AlarmItemDao {
 interface ScheduledOccurrenceDao {
     @Insert(onConflict = OnConflictStrategy.ABORT)
     suspend fun insert(occ: ScheduledOccurrence): Long
+    /** Commit the occurrence and its PendingIntent identity together, never a placeholder row. */
+    @Transaction
+    suspend fun insertScheduled(
+        alarmId: Long,
+        groupId: Long,
+        triggerAt: Long,
+        snoozeCount: Int,
+    ): ScheduledOccurrence {
+        val pending = ScheduledOccurrence(
+            alarmId = alarmId,
+            groupId = groupId,
+            triggerAtMillis = triggerAt,
+            requestCode = 0,
+            snoozeCount = snoozeCount,
+        )
+        val id = insert(pending)
+        check(id in 1L..Int.MAX_VALUE.toLong()) { "Alarm PendingIntent identity exhausted" }
+        val allocated = pending.copy(id = id, requestCode = id.toInt())
+        update(allocated)
+        return allocated
+    }
     @Update suspend fun update(occ: ScheduledOccurrence)
     @Delete suspend fun delete(occ: ScheduledOccurrence)
     @Query("SELECT * FROM scheduled_occurrences WHERE id = :id")

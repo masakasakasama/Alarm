@@ -22,4 +22,10 @@ Goal: 最新Galaxy Alarmの信頼性を検証し、状態を実装/PC検証/実�
 - JUnit 39/39 passed、lintDebug successful、debug APK生成
 - git diff --check: passed
 
-Updated at: 2026-10-02T10:53:11.879090+00:00
+## 2026-10-04 更新
+- v2.2.16 / versionCode 71: 残り時間の毎秒更新・画面復帰時の再計算、予約行とrequestCodeのトランザクション化を実装。
+- JUnit 43/43成功（Room DBの同時予約・途中失敗時のロールバックを含む）、lintDebug・release lint・署名済みrelease APKビルド成功。
+- 鳴動全体の保証・実機検証は未完了。再生共有、タイマーの音への復帰、OS予約確認の限界等は ALARM_RELIABILITY_REVIEW.md に記載。
+- 配布先: https://github.com/masakasakasama/Alarm/releases
+
+Updated at: 2026-10-04

@@ -44,6 +44,7 @@ import com.galaxyalarm.timer.TimerEntry
 import com.galaxyalarm.timer.TimerHistoryEntry
 import com.galaxyalarm.ui.MainViewModel
 import com.galaxyalarm.ui.TimeFormat
+import com.galaxyalarm.ui.rememberCurrentTimeMillis
 import com.galaxyalarm.ui.components.PillLevel
 import com.galaxyalarm.ui.components.SectionCard
 import com.galaxyalarm.ui.components.StatusPill
@@ -108,13 +109,7 @@ fun StopwatchScreen() {
 /** 現在時刻(日付+大きな時計)だけのカード。 */
 @Composable
 fun NowCard() {
-    var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
-    LaunchedEffect(Unit) {
-        while (true) {
-            now = System.currentTimeMillis()
-            delay(1000)
-        }
-    }
+    val now = rememberCurrentTimeMillis()
     SectionCard(Modifier.fillMaxWidth()) {
         Column {
             Text(formatLocalDate(now), color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -127,6 +122,7 @@ fun NowCard() {
 @Composable
 fun NextAlarmCard(vm: MainViewModel, onAddAlarm: () -> Unit, onEditAlarm: (Long) -> Unit = {}) {
     val nextAlarm by vm.nextAlarmRow.collectAsStateWithLifecycle()
+    val now = rememberCurrentTimeMillis()
     val onClick = if (nextAlarm != null) ({ onEditAlarm(nextAlarm!!.alarm.id) }) else null
     SectionCard(Modifier.fillMaxWidth(), onClick = onClick) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -139,7 +135,7 @@ fun NextAlarmCard(vm: MainViewModel, onAddAlarm: () -> Unit, onEditAlarm: (Long)
                     val row = nextAlarm!!
                     Text(TimeFormat.clock(row.nextTriggerAt!!), style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
                     Text(
-                        TimeFormat.remaining(row.nextTriggerAt) + " / " + TimeFormat.nextTrigger(row.nextTriggerAt),
+                        TimeFormat.remaining(row.nextTriggerAt, now) + " / " + TimeFormat.nextTrigger(row.nextTriggerAt, now),
                         color = MaterialTheme.colorScheme.primary
                     )
                     Text(

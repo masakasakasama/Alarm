@@ -150,17 +150,9 @@ class AlarmScheduler(
         alarmId: Long, groupId: Long, triggerAt: Long, snoozeCount: Int
     ): Boolean {
         if (!permissions.canScheduleExactAlarms()) return false
-        // requestCode を一意にするため、まず行を挿入して PK を取得し requestCode に採用。
-        val tempId = occurrenceDao.insert(
-            ScheduledOccurrence(
-                alarmId = alarmId, groupId = groupId,
-                triggerAtMillis = triggerAt, requestCode = 0,
-                status = OccurrenceStatus.SCHEDULED, snoozeCount = snoozeCount
-            )
-        )
-        val requestCode = tempId.toInt()
-        val occ = occurrenceDao.getById(tempId)!!.copy(requestCode = requestCode)
-        occurrenceDao.update(occ)
+        // Placeholder insertion and unique PendingIntent identity allocation must be atomic.
+        val occ = occurrenceDao.insertScheduled(alarmId, groupId, triggerAt, snoozeCount)
+        val requestCode = occ.requestCode
 
         return try {
             val pi = firePendingIntent(occ.id, alarmId, requestCode)
