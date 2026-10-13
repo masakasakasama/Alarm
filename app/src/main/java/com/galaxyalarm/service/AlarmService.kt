@@ -71,7 +71,9 @@ class AlarmService : Service() {
         }
         if (intent?.action == AlarmIntents.ACTION_FIRE && isBackupFire && outputConfirmed) {
             scope.launch { container.scheduler.cancelBackup(occurrenceId) }
-            return START_NOT_STICKY
+            // A backup is another start command: NOT_STICKY here would replace the
+            // primary's recovery policy while the alarm is still ringing.
+            return START_REDELIVER_INTENT
         }
         // startForegroundService の 5 秒制約を満たすため、どのアクションでも即時に前面化。
         startForeground(NotificationHelper.FOREGROUND_ID, notifier.buildLoadingNotification())
