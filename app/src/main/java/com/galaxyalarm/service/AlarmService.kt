@@ -93,11 +93,13 @@ class AlarmService : Service() {
     }
 
     private fun acquireWakeLock() {
-        if (wakeLock?.isHeld == true) return
-        val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
-        wakeLock = pm.newWakeLock(
-            PowerManager.PARTIAL_WAKE_LOCK, "galaxyalarm:ring"
-        ).apply { acquire(10 * 60 * 1000L) }
+        val lock = wakeLock ?: (getSystemService(Context.POWER_SERVICE) as PowerManager)
+            .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "galaxyalarm:ring")
+            .apply { setReferenceCounted(false) }
+            .also { wakeLock = it }
+        // Alarms allow up to 60 minutes. Renew for overlapping alarms rather than
+        // letting an older 10-minute lease expire while a newer alarm is ringing.
+        lock.acquire(61 * 60_000L)
     }
 
     private fun handleFire(occurrenceId: Long, isBackupFire: Boolean, isRedelivery: Boolean) {
@@ -147,6 +149,7 @@ class AlarmService : Service() {
                             globalPrefs.fadeInStartVolume,
                             onOutputStarted = { outputResult.complete(true) },
                             onOutputFailed = { outputResult.complete(false) },
+                            onPlaybackRecovered = { logPlaybackRecovery(occ.id) },
                         )
                         if (shouldLaunchFullScreen()) launchRingActivity(occ.id, alarm.id)
                         scheduleAutoStop(occ.id, alarm.autoStopMinutes)
@@ -246,6 +249,24 @@ class AlarmService : Service() {
         if (ActiveAlarms.top() == null) finishService()
     }
 
+    private fun logPlaybackRecovery(occurrenceId: Long) {
+        val screen = if (getSystemService(PowerManager::class.java).isInteractive) "画面ON" else "画面OFF"
+        scope.launch {
+            runCatching {
+                val occ = container.db.occurrenceDao().getById(occurrenceId)
+                container.repository.log(
+                    AlarmEventLog(
+                        alarmId = occ?.alarmId, groupId = occ?.groupId,
+                        scheduledAtMillis = occ?.triggerAtMillis,
+                        firedAtMillis = System.currentTimeMillis(), delayMs = null,
+                        result = EventResult.FIRED,
+                        message = "音の一時停止を検知して再開 ($screen)",
+                    )
+                )
+            }.onFailure { Log.e(TAG, "failed to log playback recovery", it) }
+        }
+    }
+
     /** タイマー発火: DBアラームに依存せず鳴らす。音なし設定ならバイブのみで鳴らす。 */
     private fun handleTimerFire(timerId: Int, soundOn: Boolean) {
         if (timerId < 0) return
@@ -293,6 +314,7 @@ class AlarmService : Service() {
                 com.galaxyalarm.data.model.VibrationPattern.SHORT,
                 fadeInSeconds,
                 fadeInStartVolume,
+                onPlaybackRecovered = { logPlaybackRecovery(id) },
             )
             if (shouldLaunchFullScreen()) launchRingActivity(id, -1L)
             scheduleAutoStop(id, 5)

@@ -9,6 +9,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.os.PowerManager
 import android.os.VibrationEffect
 import android.os.VibrationAttributes
 import android.os.Vibrator
@@ -35,10 +36,11 @@ class AlarmPlayer(private val context: Context) {
             context.getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
         }
     }
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val mainHandler = Handler(Looper.getMainLooper())
     private var fadeJob: Job? = null
     private var prepareTimeout: Runnable? = null
+    private var playbackWatchdog: Runnable? = null
     private var playbackGeneration = 0
 
     fun start(
@@ -50,6 +52,7 @@ class AlarmPlayer(private val context: Context) {
         fadeInStartVolume: Int = 5,
         onOutputStarted: () -> Unit = {},
         onOutputFailed: () -> Unit = {},
+        onPlaybackRecovered: () -> Unit = {},
     ) {
         val resolved = AtomicBoolean(false)
         val outputStarted = AtomicBoolean(false)
@@ -69,6 +72,7 @@ class AlarmPlayer(private val context: Context) {
                     fadeInSeconds = fadeInSeconds,
                     fadeInStartVolume = fadeInStartVolume,
                     onStarted = ::started,
+                    onPlaybackRecovered = onPlaybackRecovered,
                     onVolumeUnavailable = {
                         if (!vibrationEnabled && vibrate(pattern)) started()
                     },
@@ -89,6 +93,7 @@ class AlarmPlayer(private val context: Context) {
         fadeInSeconds: Int,
         fadeInStartVolume: Int,
         onStarted: () -> Unit,
+        onPlaybackRecovered: () -> Unit,
         onVolumeUnavailable: () -> Unit,
         onAllFailed: () -> Unit,
     ) {
@@ -127,6 +132,8 @@ class AlarmPlayer(private val context: Context) {
 
             val mediaPlayer = MediaPlayer()
             try {
+                // Playback must not depend on the Activity keeping the screen on.
+                mediaPlayer.setWakeMode(context, PowerManager.PARTIAL_WAKE_LOCK)
                 mediaPlayer.setAudioAttributes(
                     AudioAttributes.Builder()
                         .setUsage(AudioAttributes.USAGE_ALARM)
@@ -146,6 +153,13 @@ class AlarmPlayer(private val context: Context) {
                         prepared.start()
                     }.onSuccess {
                         onStarted()
+                        watchPlayback(prepared, generation, onPlaybackRecovered) {
+                            fadeJob?.cancel()
+                            fadeJob = null
+                            runCatching { prepared.release() }
+                            if (player === prepared) player = null
+                            tryCandidate(index + 1)
+                        }
                         if (fadeInSeconds > 0) {
                             startFade(
                                 fadeInSeconds = fadeInSeconds,
@@ -167,6 +181,9 @@ class AlarmPlayer(private val context: Context) {
                         return@setOnErrorListener true
                     }
                     clearPrepareTimeout()
+                    clearPlaybackWatchdog()
+                    fadeJob?.cancel()
+                    fadeJob = null
                     runCatching { failed.release() }
                     if (player === failed) player = null
                     tryCandidate(index + 1)
@@ -194,6 +211,43 @@ class AlarmPlayer(private val context: Context) {
         }
 
         tryCandidate(0)
+    }
+
+    /** Recover a paused looping player without restarting healthy playback on every screen event. */
+    private fun watchPlayback(
+        target: MediaPlayer,
+        generation: Int,
+        onRecovered: () -> Unit,
+        onFailure: () -> Unit,
+    ) {
+        clearPlaybackWatchdog()
+        val check = object : Runnable {
+            override fun run() {
+                if (generation != playbackGeneration || player !== target) return
+                val healthy = runCatching {
+                    if (!target.isPlaying) {
+                        Log.w(TAG, "alarm playback unexpectedly paused; restarting")
+                        target.start()
+                        onRecovered()
+                    }
+                }.onFailure { Log.e(TAG, "alarm playback recovery failed", it) }.isSuccess
+                if (!healthy) {
+                    clearPlaybackWatchdog()
+                    onFailure()
+                    return
+                }
+                if (generation == playbackGeneration && player === target) {
+                    mainHandler.postDelayed(this, PLAYBACK_CHECK_INTERVAL_MS)
+                }
+            }
+        }
+        playbackWatchdog = check
+        mainHandler.postDelayed(check, PLAYBACK_CHECK_INTERVAL_MS)
+    }
+
+    private fun clearPlaybackWatchdog() {
+        playbackWatchdog?.let { mainHandler.removeCallbacks(it) }
+        playbackWatchdog = null
     }
 
     private fun startFade(
@@ -266,16 +320,14 @@ class AlarmPlayer(private val context: Context) {
     fun stop() {
         playbackGeneration += 1
         clearPrepareTimeout()
+        clearPlaybackWatchdog()
         fadeJob?.cancel()
         fadeJob = null
-        try {
-            player?.let {
-                if (it.isPlaying) it.stop()
-                it.release()
-            }
-        } catch (_: Exception) {
-        }
+        val current = player
         player = null
+        runCatching { if (current?.isPlaying == true) current.stop() }
+        // A failed state query must not skip releasing the player and its wake lock.
+        runCatching { current?.release() }
         try {
             vibrator.cancel()
         } catch (_: Exception) {
@@ -285,6 +337,7 @@ class AlarmPlayer(private val context: Context) {
     companion object {
         private const val TAG = "AlarmPlayer"
         private const val PREPARE_TIMEOUT_MS = 1_500L
+        private const val PLAYBACK_CHECK_INTERVAL_MS = 1_000L
     }
 }
 
