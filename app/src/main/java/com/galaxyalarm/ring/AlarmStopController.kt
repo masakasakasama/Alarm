@@ -16,7 +16,11 @@ import kotlinx.coroutines.launch
 
 /** Immediate stop path shared by notification, lock screen, hardware keys, and the app UI. */
 object AlarmStopController {
-    fun stopAllNow(context: Context, hintedOccurrenceId: Long? = null) {
+    fun stopAllNow(
+        context: Context,
+        hintedOccurrenceId: Long? = null,
+        reason: String = "停止操作",
+    ) {
         val appContext = context.applicationContext
         val occurrenceIds = buildSet {
             ActiveAlarms.stack.value
@@ -56,7 +60,7 @@ object AlarmStopController {
                                 firedAtMillis = now,
                                 delayMs = now - occurrence.triggerAtMillis,
                                 result = EventResult.DISMISSED,
-                                message = "即時全停止",
+                                message = "即時全停止: $reason",
                             )
                         )
                     }

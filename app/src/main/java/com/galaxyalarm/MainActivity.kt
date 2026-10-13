@@ -113,7 +113,7 @@ class MainActivity : ComponentActivity() {
             (keyCode == KeyEvent.KEYCODE_VOLUME_UP ||
                 keyCode == KeyEvent.KEYCODE_VOLUME_DOWN)
         ) {
-            AlarmStopController.stopAllNow(this)
+            AlarmStopController.stopAllNow(this, reason = "音量キー(アプリ画面)")
             return true
         }
         return super.onKeyDown(keyCode, event)
@@ -163,7 +163,7 @@ private fun BoxScope.ActiveAlarmStopButton() {
     if (active.isEmpty()) return
 
     Button(
-        onClick = { AlarmStopController.stopAllNow(context) },
+        onClick = { AlarmStopController.stopAllNow(context, reason = "アプリ内の停止ボタン") },
         modifier = Modifier
             .align(Alignment.TopCenter)
             .statusBarsPadding()

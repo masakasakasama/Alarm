@@ -49,7 +49,9 @@ class AlarmRingActivity : ComponentActivity() {
         recoverFromNotificationIntent(intent)
         showOverLockscreen()
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
-            override fun handleOnBackPressed() = stopAllAndClose()
+            // Leaving the screen (including navigation around unlock) is not a dismissal.
+            // The foreground service keeps ringing until an explicit stop/snooze action.
+            override fun handleOnBackPressed() = finish()
         })
         setContent {
             GalaxyAlarmTheme {
@@ -114,15 +116,16 @@ class AlarmRingActivity : ComponentActivity() {
         })
     }
 
-    private fun sendStopAll() {
+    private fun sendStopAll(reason: String) {
         AlarmStopController.stopAllNow(
             this,
             intent.getLongExtra(AlarmIntents.EXTRA_OCCURRENCE_ID, -1L),
+            reason = reason,
         )
     }
 
-    private fun stopAllAndClose() {
-        sendStopAll()
+    private fun stopAllAndClose(reason: String = "停止ボタン(アラーム画面)") {
+        sendStopAll(reason)
         finishAndRemoveTask()
     }
 
@@ -131,7 +134,7 @@ class AlarmRingActivity : ComponentActivity() {
             keyCode == KeyEvent.KEYCODE_VOLUME_UP ||
             keyCode == KeyEvent.KEYCODE_VOLUME_DOWN
         ) {
-            stopAllAndClose()
+            stopAllAndClose("音量キー(アラーム画面)")
             return true
         }
         return super.onKeyDown(keyCode, event)

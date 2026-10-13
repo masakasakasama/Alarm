@@ -40,7 +40,7 @@ class AlarmReceiver : BroadcastReceiver() {
         }
         val occurrenceId = intent.getLongExtra(AlarmIntents.EXTRA_OCCURRENCE_ID, -1L)
         if (action == AlarmIntents.ACTION_STOP || action == AlarmIntents.ACTION_STOP_ALL) {
-            AlarmStopController.stopAllNow(context, occurrenceId)
+            AlarmStopController.stopAllNow(context, occurrenceId, reason = "通知の停止操作")
             return
         }
         val dismissalStore = AlarmDismissalStore(context)
