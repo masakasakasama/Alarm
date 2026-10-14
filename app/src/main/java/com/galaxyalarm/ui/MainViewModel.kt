@@ -124,6 +124,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         }
 
     fun addGroup(name: String) = viewModelScope.launch { repo.addGroup(name); refreshWidgets(); backupIfConfigured() }
+    fun moveGroup(groupId: Long, moveUp: Boolean) = viewModelScope.launch {
+        repo.moveGroup(groupId, moveUp)
+        backupIfConfigured()
+    }
     fun renameGroup(group: AlarmGroup, name: String) = viewModelScope.launch { repo.renameGroup(group, name); refreshWidgets(); backupIfConfigured() }
     fun deleteGroup(group: AlarmGroup) = viewModelScope.launch { repo.deleteGroup(group); refreshWidgets(); runCheck(); backupIfConfigured() }
 
