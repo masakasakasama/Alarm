@@ -27,6 +27,8 @@ interface AlarmGroupDao {
     suspend fun getById(id: Long): AlarmGroup?
     @Query("UPDATE alarm_groups SET enabled = :enabled, updatedAt = :now WHERE id = :id")
     suspend fun setEnabled(id: Long, enabled: Boolean, now: Long)
+    @Query("UPDATE alarm_groups SET sortOrder = :sortOrder, updatedAt = :now WHERE id = :id")
+    suspend fun setSortOrder(id: Long, sortOrder: Int, now: Long)
     @Query("SELECT COUNT(*) FROM alarm_groups")
     suspend fun count(): Int
 }

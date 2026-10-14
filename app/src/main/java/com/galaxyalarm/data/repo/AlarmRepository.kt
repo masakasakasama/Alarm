@@ -55,14 +55,31 @@ class AlarmRepository(
     fun hasSystemReservation(occurrence: ScheduledOccurrence) =
         scheduler.hasSystemReservation(occurrence)
 
-    suspend fun addGroup(name: String): Long {
-        val order = getVisibleGroups().size
-        return groupDao.insert(AlarmGroup(name = name, sortOrder = order))
+    suspend fun addGroup(name: String): Long = database.withTransaction {
+        val groups = getVisibleGroups()
+        val now = System.currentTimeMillis()
+        groups.forEachIndexed { index, group -> groupDao.setSortOrder(group.id, index, now) }
+        groupDao.insert(AlarmGroup(name = name, sortOrder = groups.size))
+    }
+
+    suspend fun moveGroup(groupId: Long, moveUp: Boolean) = database.withTransaction {
+        val groups = getVisibleGroups().toMutableList()
+        val from = groups.indexOfFirst { it.id == groupId }
+        if (from < 0) return@withTransaction
+        val to = from + if (moveUp) -1 else 1
+        if (to !in groups.indices) return@withTransaction
+        groups.add(to, groups.removeAt(from))
+        val now = System.currentTimeMillis()
+        // Normalize duplicate/gapped sort orders left by imports or deletions.
+        groups.forEachIndexed { index, group -> groupDao.setSortOrder(group.id, index, now) }
     }
 
     suspend fun renameGroup(group: AlarmGroup, name: String) {
         if (isDefaultGroupName(group.name)) return
-        groupDao.update(group.copy(name = name, updatedAt = System.currentTimeMillis()))
+        database.withTransaction {
+            val current = groupDao.getById(group.id) ?: return@withTransaction
+            groupDao.update(current.copy(name = name, updatedAt = System.currentTimeMillis()))
+        }
     }
 
     suspend fun deleteGroup(group: AlarmGroup) {
