@@ -67,6 +67,18 @@
             android:directBootAware="true"
             android:exported="false" />
 
+        <!-- Optional local Gmail notification wake-up; requires explicit user-granted
+             notification access. No notification contents are stored or transmitted. -->
+        <service
+            android:name=".automation.RomancecarGmailNotificationListener"
+            android:label="ロマンスカー自動同期"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+        </service>
+
         <!-- User-paired MacroDroid bridge. A per-device secret is checked before scheduling. -->
         <receiver
             android:name=".automation.RomancecarImportReceiver"
