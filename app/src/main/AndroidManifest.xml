@@ -67,6 +67,15 @@
             android:directBootAware="true"
             android:exported="false" />
 
+        <!-- User-paired MacroDroid bridge. A per-device secret is checked before scheduling. -->
+        <receiver
+            android:name=".automation.RomancecarImportReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.galaxyalarm.action.SET_ROMANCECAR_ARRIVAL" />
+            </intent-filter>
+        </receiver>
+
         <!-- 起動完了・更新・時刻/TZ変更・exact alarm権限付与 -->
         <receiver
             android:name=".receiver.SystemEventReceiver"
