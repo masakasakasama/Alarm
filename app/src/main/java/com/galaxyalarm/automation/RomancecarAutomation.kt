@@ -62,12 +62,34 @@ object RomancecarAutomation {
         return alarmAt
     }
 
+    /**
+     * MacroDroid passes a single station text variable, optionally followed by
+     * a stable EMot confirmation code separated by '|'.
+     * Example: "本厚木|E411". No ticket IDs or access tokens are sent.
+     */
+    fun station(raw: String): String =
+        raw.substringBefore('|').replace(Regex("[\\r\\n\\t]"), "").trim().take(24)
+
+    fun bookingCode(raw: String): String? =
+        raw.substringAfter('|', "").trim().takeIf { it.matches(Regex("E[0-9A-Za-z]{3,10}")) }
+
     fun label(arrivalAtMs: Long, station: String): String {
         val date = SimpleDateFormat("yyyy/MM/dd", Locale.JAPAN).apply {
             timeZone = TimeZone.getTimeZone("Asia/Tokyo")
         }.format(Date(arrivalAtMs))
-        val safeStation = station.replace(Regex("[\\r\\n\\t]"), "").trim().take(24)
-        return "ロマンスカー到着3分前 $date ${safeStation.ifBlank { "目的地" }}"
+        val stationName = station(station)
+        val code = bookingCode(station)
+        return "ロマンスカー到着3分前 $date ${stationName.ifBlank { "目的地" }}" +
+            (code?.let { " [$it]" } ?: "")
+    }
+
+    fun matchesBooking(previousLabel: String, nextLabel: String, stationRaw: String): Boolean {
+        val code = bookingCode(stationRaw)
+        if (code != null) {
+            return previousLabel.endsWith(" [$code]") &&
+                previousLabel.startsWith("ロマンスカー到着3分前 ")
+        }
+        return previousLabel == nextLabel
     }
 
     private fun generateToken(): String {
