@@ -65,7 +65,7 @@ object RomancecarAutomation {
     /**
      * MacroDroid passes a single station text variable, optionally followed by
      * a stable EMot confirmation code separated by '|'.
-     * Example: "本厚木|E411". No ticket IDs or access tokens are sent.
+     * Example: "本厚木|E123". No ticket IDs or access tokens are sent.
      */
     fun station(raw: String): String =
         raw.substringBefore('|').replace(Regex("[\\r\\n\\t]"), "").trim().take(24)
