@@ -42,7 +42,9 @@ class RomancecarImportReceiver : BroadcastReceiver() {
                     val group = repo.getGroups().firstOrNull { it.name == GROUP_NAME }
                     val groupId = group?.id ?: repo.addGroup(GROUP_NAME)
                     val time = Calendar.getInstance().apply { timeInMillis = alarmAt }
-                    val current = repo.getAlarms().firstOrNull { it.label == label }
+                    val current = repo.getAlarms().firstOrNull {
+                        it.groupId == groupId && RomancecarAutomation.matchesBooking(it.label, label, station)
+                    }
                     val requested = AlarmItem(
                         id = current?.id ?: 0,
                         groupId = groupId,
