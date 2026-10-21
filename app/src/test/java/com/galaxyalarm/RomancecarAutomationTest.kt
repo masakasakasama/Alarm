@@ -18,12 +18,12 @@ class RomancecarAutomationTest {
     }
 
     @Test fun ticketChangeReusesOriginalAlarmIdentity() {
-        val oldLabel = "ロマンスカー到着3分前 2026/10/15 本厚木 [E411]"
-        val newLabel = RomancecarAutomation.label(1_800_000_000_000L, "新宿|E411")
-        assertEquals("新宿", RomancecarAutomation.station("新宿|E411"))
-        assertEquals("E411", RomancecarAutomation.bookingCode("新宿|E411"))
-        org.junit.Assert.assertTrue(RomancecarAutomation.matchesBooking(oldLabel, newLabel, "新宿|E411"))
-        org.junit.Assert.assertFalse(RomancecarAutomation.matchesBooking(oldLabel, newLabel, "新宿|E412"))
+        val oldLabel = "ロマンスカー到着3分前 2026/10/15 本厚木 [E123]"
+        val newLabel = RomancecarAutomation.label(1_800_000_000_000L, "新宿|E123")
+        assertEquals("新宿", RomancecarAutomation.station("新宿|E123"))
+        assertEquals("E123", RomancecarAutomation.bookingCode("新宿|E123"))
+        org.junit.Assert.assertTrue(RomancecarAutomation.matchesBooking(oldLabel, newLabel, "新宿|E123"))
+        org.junit.Assert.assertFalse(RomancecarAutomation.matchesBooking(oldLabel, newLabel, "新宿|E124"))
     }
 
     @Test fun identicalBookingProducesSameLabel() {
