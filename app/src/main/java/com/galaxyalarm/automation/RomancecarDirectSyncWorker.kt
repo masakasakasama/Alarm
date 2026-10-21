@@ -1,0 +1,174 @@
+package com.galaxyalarm.automation
+
+import android.content.Context
+import android.util.Log
+import androidx.work.Constraints
+import androidx.work.CoroutineWorker
+import androidx.work.ExistingPeriodicWorkPolicy
+import androidx.work.ExistingWorkPolicy
+import androidx.work.NetworkType
+import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.PeriodicWorkRequestBuilder
+import androidx.work.WorkManager
+import androidx.work.WorkerParameters
+import com.galaxyalarm.AlarmApplication
+import java.net.HttpURLConnection
+import java.net.URL
+import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import org.json.JSONObject
+
+/**
+ * Pulls a minimal list of future EMot trips from a user-owned Apps Script web app.
+ * Gmail access remains on Google's side; no Gmail credentials are stored on Android.
+ * WorkManager periodic work is inexact and runs no more often than every 15 minutes.
+ */
+class RomancecarDirectSyncWorker(
+    context: Context,
+    params: WorkerParameters,
+) : CoroutineWorker(context, params) {
+
+    override suspend fun doWork(): Result {
+        val context = applicationContext
+        val url = RomancecarDirectSyncSettings.readUrl(context)
+        if (!RomancecarDirectSyncSettings.validUrl(url)) return Result.success()
+        val now = System.currentTimeMillis()
+        return try {
+            val response = withContext(Dispatchers.IO) {
+                readBookings(url, RomancecarAutomation.token(context))
+            }
+            val body = JSONObject(response)
+            if (!body.optBoolean("ok", false)) {
+                throw IllegalStateException("GAS authentication or response failed")
+            }
+            val bookings = body.optJSONArray("bookings") ?: throw IllegalStateException("bookings missing")
+            if (bookings.length() > 60) throw IllegalStateException("Unexpected booking count")
+            val app = context as AlarmApplication
+            var successCount = 0
+            for (index in 0 until bookings.length()) {
+                val booking = bookings.getJSONObject(index)
+                val arrival = booking.getLong("arrival_ms")
+                val station = booking.getString("station")
+                if (station.isBlank() || station.length > 100) continue
+                if (arrival <= now || arrival > now + 45L * 24L * 60L * 60_000L) continue
+                if (!RomancecarAlarmImporter.import(app, arrival, station)) {
+                    throw IllegalStateException("OS alarm scheduling failed")
+                }
+                successCount++
+            }
+            RomancecarDirectSyncSettings.recordSuccess(context, successCount)
+            Result.success()
+        } catch (error: Exception) {
+            Log.w(TAG, "Direct Romancecar sync failed", error)
+            RomancecarDirectSyncSettings.recordFailure(context, error.javaClass.simpleName)
+            Result.retry()
+        }
+    }
+
+    private fun readBookings(webAppUrl: String, token: String): String {
+        val connection = URL(webAppUrl).openConnection() as HttpURLConnection
+        return try {
+            connection.requestMethod = "POST"
+            connection.connectTimeout = 12_000
+            connection.readTimeout = 18_000
+            connection.instanceFollowRedirects = true
+            connection.doOutput = true
+            connection.setRequestProperty("Content-Type", "application/json; charset=utf-8")
+            val bytes = JSONObject().put("token", token).toString().toByteArray(Charsets.UTF_8)
+            connection.setFixedLengthStreamingMode(bytes.size)
+            connection.outputStream.use { it.write(bytes) }
+            if (connection.responseCode != HttpURLConnection.HTTP_OK) {
+                throw IllegalStateException("Server returned HTTP ${connection.responseCode}")
+            }
+            // Redirects issued by Google ContentService must stay on Google's HTTPS hosts.
+            if (connection.url.protocol != "https" ||
+                connection.url.host !in setOf("script.google.com", "script.googleusercontent.com")
+            ) throw IllegalStateException("Untrusted redirect")
+            connection.inputStream.bufferedReader(Charsets.UTF_8).use { reader ->
+                reader.readText().also {
+                    if (it.length > 80_000) throw IllegalStateException("Oversized response")
+                }
+            }
+        } finally {
+            connection.disconnect()
+        }
+    }
+
+    companion object {
+        private const val TAG = "RomancecarDirectSync"
+        private const val PERIODIC = "romancecar_direct_sync_periodic"
+        private const val ONCE = "romancecar_direct_sync_once"
+
+        fun schedule(context: Context) {
+            val manager = WorkManager.getInstance(context)
+            if (!RomancecarDirectSyncSettings.validUrl(RomancecarDirectSyncSettings.readUrl(context))) {
+                manager.cancelUniqueWork(PERIODIC)
+                return
+            }
+            val network = Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build()
+            val periodic = PeriodicWorkRequestBuilder<RomancecarDirectSyncWorker>(
+                15, TimeUnit.MINUTES
+            ).setConstraints(network).build()
+            manager.enqueueUniquePeriodicWork(PERIODIC, ExistingPeriodicWorkPolicy.KEEP, periodic)
+        }
+
+        fun syncNow(context: Context) {
+            if (!RomancecarDirectSyncSettings.validUrl(RomancecarDirectSyncSettings.readUrl(context))) return
+            val network = Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build()
+            val request = OneTimeWorkRequestBuilder<RomancecarDirectSyncWorker>()
+                .setConstraints(network).build()
+            WorkManager.getInstance(context).enqueueUniqueWork(
+                ONCE, ExistingWorkPolicy.REPLACE, request
+            )
+        }
+
+        fun disable(context: Context) {
+            WorkManager.getInstance(context).cancelUniqueWork(PERIODIC)
+            WorkManager.getInstance(context).cancelUniqueWork(ONCE)
+        }
+    }
+}
+
+object RomancecarDirectSyncSettings {
+    private const val PREFERENCES = "romancecar_direct_sync"
+    private const val URL = "script_url"
+    private const val LAST_OK = "last_success"
+    private const val LAST_ERROR = "last_error"
+    private const val LAST_COUNT = "last_count"
+
+    private fun prefs(context: Context) =
+        context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
+
+    fun readUrl(context: Context): String = prefs(context).getString(URL, "").orEmpty()
+
+    fun validUrl(value: String): Boolean =
+        Regex("^https://script\\.google\\.com/macros/s/[A-Za-z0-9_-]+/exec$").matches(value)
+
+    fun saveUrl(context: Context, value: String): Boolean {
+        val trimmed = value.trim()
+        if (trimmed.isNotEmpty() && !validUrl(trimmed)) return false
+        prefs(context).edit().putString(URL, trimmed).apply()
+        return true
+    }
+
+    fun recordSuccess(context: Context, count: Int) {
+        prefs(context).edit()
+            .putLong(LAST_OK, System.currentTimeMillis())
+            .putInt(LAST_COUNT, count)
+            .remove(LAST_ERROR).apply()
+    }
+
+    fun recordFailure(context: Context, error: String) {
+        prefs(context).edit().putString(LAST_ERROR, error.take(80)).apply()
+    }
+
+    fun status(context: Context): String {
+        val prefs = prefs(context)
+        val lastOk = prefs.getLong(LAST_OK, 0L)
+        val error = prefs.getString(LAST_ERROR, null)
+        if (error != null) return "前回同期エラー: $error"
+        if (lastOk == 0L) return "未同期"
+        return "同期成功：${java.text.SimpleDateFormat("MM/dd HH:mm", java.util.Locale.JAPAN).format(java.util.Date(lastOk))}／予約 ${prefs.getInt(LAST_COUNT, 0)} 件"
+    }
+}
