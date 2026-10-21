@@ -4,6 +4,7 @@ import android.app.Application
 import android.app.ActivityManager
 import android.os.Build
 import android.os.UserManager
+import com.galaxyalarm.automation.RomancecarDirectSyncWorker
 import com.galaxyalarm.data.db.AppDatabase
 import com.galaxyalarm.data.repo.AlarmRepository
 import com.galaxyalarm.notify.NotificationHelper
@@ -78,6 +79,8 @@ class AlarmApplication : Application() {
         if (startUnlocked) {
             runCatching { com.galaxyalarm.timer.TimerController.init(this) }
             ScheduleHealthWorker.schedule(this)
+            RomancecarDirectSyncWorker.schedule(this)
+            RomancecarDirectSyncWorker.syncNow(this)
         }
         if (!startCore && !startUnlocked) return
 
