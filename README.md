@@ -7,6 +7,12 @@ UI の綺麗さより**信頼性を最優先**しています。Kotlin / Jetpack
 
 ---
 
+## EMot ロマンスカー連携（任意）
+
+Google Apps Script + MacroDroid から、自作 Galaxy Alarm の「ロマンスカー（自動）」グループへ到着3分前の振動アラームを登録できます。設定方法は [integrations/README.md](integrations/README.md) を参照してください。
+
+---
+
 ## 特徴 / 信頼性の仕組み
 
 - 各アラームを `setAlarmClock()` で予約し、10秒後の独立した予備予約も作成。
