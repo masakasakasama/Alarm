@@ -1,0 +1,22 @@
+name: Romancecar Gmail parsing tests
+
+on:
+  push:
+    branches: [ main, "test/**", "feat/**" ]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  gmail-parsing:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Run mocked Gmail and Apps Script integration tests
+        run: node --test integrations/romancecar_direct.test.cjs
