@@ -72,28 +72,60 @@ class RomancecarDirectSyncWorker(
             connection.requestMethod = "POST"
             connection.connectTimeout = 12_000
             connection.readTimeout = 18_000
-            connection.instanceFollowRedirects = true
+            connection.instanceFollowRedirects = false
             connection.doOutput = true
             connection.setRequestProperty("Content-Type", "application/json; charset=utf-8")
             val bytes = JSONObject().put("token", token).toString().toByteArray(Charsets.UTF_8)
-            connection.setFixedLengthStreamingMode(bytes.size)
             connection.outputStream.use { it.write(bytes) }
-            if (connection.responseCode != HttpURLConnection.HTTP_OK) {
-                throw IllegalStateException("Server returned HTTP ${connection.responseCode}")
-            }
-            // Redirects issued by Google ContentService must stay on Google's HTTPS hosts.
-            if (connection.url.protocol != "https" ||
-                connection.url.host !in setOf("script.google.com", "script.googleusercontent.com")
-            ) throw IllegalStateException("Untrusted redirect")
-            connection.inputStream.bufferedReader(Charsets.UTF_8).use { reader ->
-                reader.readText().also {
-                    if (it.length > 80_000) throw IllegalStateException("Oversized response")
+
+            val status = connection.responseCode
+            if (status == HttpURLConnection.HTTP_OK) {
+                readBounded(connection)
+            } else if (status == HttpURLConnection.HTTP_MOVED_TEMP ||
+                status == HttpURLConnection.HTTP_MOVED_PERM ||
+                status == HttpURLConnection.HTTP_SEE_OTHER
+            ) {
+                // Google Apps Script ContentService answers with a 302 redirect.
+                // Follow only Google's own HTTPS response host, never forward the POST token.
+                val location = connection.getHeaderField("Location")
+                    ?: throw IllegalStateException("Google response missing location")
+                val destination = URL(location)
+                if (destination.protocol != "https" ||
+                    destination.host != "script.googleusercontent.com"
+                ) throw IllegalStateException("Unexpected Apps Script redirect")
+                val forwarded = destination.openConnection() as HttpURLConnection
+                try {
+                    forwarded.requestMethod = "GET"
+                    forwarded.connectTimeout = 12_000
+                    forwarded.readTimeout = 18_000
+                    forwarded.instanceFollowRedirects = false
+                    if (forwarded.responseCode != HttpURLConnection.HTTP_OK) {
+                        throw IllegalStateException("Google response HTTP ${forwarded.responseCode}")
+                    }
+                    readBounded(forwarded)
+                } finally {
+                    forwarded.disconnect()
                 }
+            } else {
+                throw IllegalStateException("Apps Script HTTP $status")
             }
         } finally {
             connection.disconnect()
         }
     }
+
+    private fun readBounded(connection: HttpURLConnection): String =
+        connection.inputStream.bufferedReader(Charsets.UTF_8).use { reader ->
+            val chars = CharArray(4096)
+            val text = StringBuilder()
+            while (true) {
+                val count = reader.read(chars)
+                if (count < 0) break
+                if (text.length + count > 80_000) throw IllegalStateException("Oversized response")
+                text.append(chars, 0, count)
+            }
+            text.toString()
+        }
 
     companion object {
         private const val TAG = "RomancecarDirectSync"
