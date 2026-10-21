@@ -73,12 +73,12 @@ object RomancecarAutomation {
     fun bookingCode(raw: String): String? =
         raw.substringAfter('|', "").trim().takeIf { it.matches(Regex("E[0-9A-Za-z]{3,10}")) }
 
-    fun label(arrivalAtMs: Long, station: String): String {
+    fun label(arrivalAtMs: Long, rawStation: String): String {
         val date = SimpleDateFormat("yyyy/MM/dd", Locale.JAPAN).apply {
             timeZone = TimeZone.getTimeZone("Asia/Tokyo")
         }.format(Date(arrivalAtMs))
-        val stationName = station(station)
-        val code = bookingCode(station)
+        val stationName = station(rawStation)
+        val code = bookingCode(rawStation)
         return "ロマンスカー到着3分前 $date ${stationName.ifBlank { "目的地" }}" +
             (code?.let { " [$it]" } ?: "")
     }
