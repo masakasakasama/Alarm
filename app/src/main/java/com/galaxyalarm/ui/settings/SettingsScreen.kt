@@ -36,6 +36,8 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import com.galaxyalarm.automation.RomancecarAutomation
+import com.galaxyalarm.automation.RomancecarDirectSyncWorker
+import com.galaxyalarm.automation.RomancecarDirectSyncSettings
 import com.galaxyalarm.prefs.GlobalAlarmPrefs
 import com.galaxyalarm.BuildConfig
 import com.galaxyalarm.backup.GitHubBackupClient
@@ -57,6 +59,7 @@ fun SettingsScreen(vm: MainViewModel, onOpenLog: () -> Unit, onOpenReliability: 
 
     var romanceToken by remember { mutableStateOf(RomancecarAutomation.token(context.applicationContext)) }
     var romanceStatus by remember { mutableStateOf("") }
+    var romanceWebAppUrl by remember { mutableStateOf(RomancecarDirectSyncSettings.readUrl(context.applicationContext)) }
     var updateText by remember { mutableStateOf("未確認") }
     var releaseUrl by remember { mutableStateOf<String?>(null) }
     var token by remember { mutableStateOf(savedBackupSettings.token) }
@@ -194,12 +197,12 @@ fun SettingsScreen(vm: MainViewModel, onOpenLog: () -> Unit, onOpenReliability: 
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("ロマンスカー到着アラーム", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
                 Text(
-                    "EMot購入・変更メールをGoogle Apps ScriptとMacroDroidで検出し、到着3分前に「音なし・振動あり」のアラームをこのアプリへ自動登録します。",
+                    "MacroDroid不要：自作AlarmがGoogle Apps Script経由でGmailの購入・変更メールを定期確認し、到着3分前に「音なし・振動あり」で登録します。通常15分間隔で、OS制限によって遅れる場合があります。",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 Text(
-                    "MacroDroidのSend Intentに設定する認証トークンです。Webhook URLと同様に第三者に公開しないでください。",
+                    "Apps Scriptのスクリプトプロパティ ROMANCECAR_SYNC_TOKEN に設定する秘密キーです。第三者に公開しないでください。",
                     style = MaterialTheme.typography.bodySmall,
                 )
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -214,14 +217,35 @@ fun SettingsScreen(vm: MainViewModel, onOpenLog: () -> Unit, onOpenReliability: 
                     OutlinedButton(
                         onClick = {
                             romanceToken = RomancecarAutomation.rotateToken(context.applicationContext)
-                            romanceStatus = "再生成しました。MacroDroidの設定も更新してください"
+                            romanceStatus = "再生成しました。Apps Script側の秘密キーも更新してください"
                         },
                         modifier = Modifier.weight(1f),
                     ) { Text("再生成") }
                 }
+                OutlinedTextField(
+                    value = romanceWebAppUrl,
+                    onValueChange = { romanceWebAppUrl = it.trim() },
+                    label = { Text("Apps Script WebアプリのURL（/exec）") },
+                    placeholder = { Text("https://script.google.com/macros/s/.../exec") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(onClick = {
+                        if (RomancecarDirectSyncSettings.saveUrl(context, romanceWebAppUrl)) {
+                            RomancecarDirectSyncWorker.schedule(context)
+                            RomancecarDirectSyncWorker.syncNow(context)
+                            romanceStatus = if (romanceWebAppUrl.isBlank()) "自動連携を無効化しました" else "保存して同期を要求しました"
+                        } else romanceStatus = "URLが不正です。Apps Script /exec のURLを入力してください"
+                    }, modifier = Modifier.weight(1f)) { Text("保存・同期") }
+                    OutlinedButton(onClick = {
+                        romanceStatus = RomancecarDirectSyncSettings.status(context)
+                    }, modifier = Modifier.weight(1f)) { Text("同期状態") }
+                }
                 if (romanceStatus.isNotBlank()) Text(romanceStatus, style = MaterialTheme.typography.bodySmall)
+
                 Text(
-                    "連携設定はGitHubの integrations/README.md を参照。到着12時間前から受け付けます。",
+                    "MacroDroid不要の初期設定はGitHubの integrations/ROMANCECAR_DIRECT.md を参照。新規予約は到着12時間前から登録します。",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
