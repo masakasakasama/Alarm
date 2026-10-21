@@ -1,6 +1,8 @@
 package com.galaxyalarm.automation
 
 import android.content.Context
+import android.os.Build
+import android.os.SystemClock
 import android.util.Log
 import androidx.work.Constraints
 import androidx.work.CoroutineWorker
@@ -8,6 +10,7 @@ import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.ExistingWorkPolicy
 import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.OutOfQuotaPolicy
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
@@ -145,13 +148,17 @@ class RomancecarDirectSyncWorker(
             manager.enqueueUniquePeriodicWork(PERIODIC, ExistingPeriodicWorkPolicy.KEEP, periodic)
         }
 
-        fun syncNow(context: Context) {
+        fun syncNow(context: Context, expedited: Boolean = false) {
             if (!RomancecarDirectSyncSettings.validUrl(RomancecarDirectSyncSettings.readUrl(context))) return
             val network = Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build()
-            val request = OneTimeWorkRequestBuilder<RomancecarDirectSyncWorker>()
-                .setConstraints(network).build()
+            val builder = OneTimeWorkRequestBuilder<RomancecarDirectSyncWorker>().setConstraints(network)
+            // On Android 12+ expedite notification-triggered sync when quota permits.
+            // WorkManager falls back to normal scheduling if expedited quota is exhausted.
+            if (expedited && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                builder.setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
+            }
             WorkManager.getInstance(context).enqueueUniqueWork(
-                ONCE, ExistingWorkPolicy.REPLACE, request
+                ONCE, ExistingWorkPolicy.REPLACE, builder.build()
             )
         }
 
@@ -168,11 +175,37 @@ object RomancecarDirectSyncSettings {
     private const val LAST_OK = "last_success"
     private const val LAST_ERROR = "last_error"
     private const val LAST_COUNT = "last_count"
+    private const val INSTANT_SYNC_ENABLED = "instant_sync_enabled"
+    private const val LAST_NOTIFICATION_SYNC = "last_notification_sync_elapsed"
+    private const val NOTIFICATION_DEBOUNCE_MS = 25_000L
 
     private fun prefs(context: Context) =
         context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
 
     fun readUrl(context: Context): String = prefs(context).getString(URL, "").orEmpty()
+
+    fun isInstantSyncEnabled(context: Context): Boolean =
+        prefs(context).getBoolean(INSTANT_SYNC_ENABLED, false)
+
+    fun setInstantSyncEnabled(context: Context, enabled: Boolean) {
+        prefs(context).edit().putBoolean(INSTANT_SYNC_ENABLED, enabled).apply()
+    }
+
+    /**
+     * Ignore duplicate/summary Gmail notification updates for 25 seconds.
+     * The existing 15-minute WorkManager sync remains an independent fallback.
+     * elapsedRealtime avoids wall-clock changes; reset-on-reboot is handled.
+     */
+    fun claimNotificationSync(context: Context): Boolean = synchronized(this) {
+        val preferences = prefs(context)
+        val now = SystemClock.elapsedRealtime()
+        val previous = preferences.getLong(LAST_NOTIFICATION_SYNC, -1L)
+        if (previous >= 0 && now >= previous && now - previous < NOTIFICATION_DEBOUNCE_MS) {
+            return@synchronized false
+        }
+        preferences.edit().putLong(LAST_NOTIFICATION_SYNC, now).apply()
+        true
+    }
 
     fun validUrl(value: String): Boolean =
         Regex("^https://script\\.google\\.com/macros/s/[A-Za-z0-9_-]+/exec$").matches(value)
