@@ -5,6 +5,7 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.provider.Settings
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -60,6 +61,7 @@ fun SettingsScreen(vm: MainViewModel, onOpenLog: () -> Unit, onOpenReliability: 
     var romanceToken by remember { mutableStateOf(RomancecarAutomation.token(context.applicationContext)) }
     var romanceStatus by remember { mutableStateOf("") }
     var romanceWebAppUrl by remember { mutableStateOf(RomancecarDirectSyncSettings.readUrl(context.applicationContext)) }
+    var romanceInstantSyncEnabled by remember { mutableStateOf(RomancecarDirectSyncSettings.isInstantSyncEnabled(context.applicationContext)) }
     var updateText by remember { mutableStateOf("未確認") }
     var releaseUrl by remember { mutableStateOf<String?>(null) }
     var token by remember { mutableStateOf(savedBackupSettings.token) }
@@ -197,7 +199,7 @@ fun SettingsScreen(vm: MainViewModel, onOpenLog: () -> Unit, onOpenReliability: 
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("ロマンスカー到着アラーム", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
                 Text(
-                    "MacroDroid不要：自作AlarmがGoogle Apps Script経由でGmailの購入・変更メールを定期確認し、到着3分前に「音なし・振動あり」で登録します。通常15分間隔で、OS制限によって遅れる場合があります。",
+                    "Gmailのスマホ通知を検知してすぐ同期し、到着3分前に「音なし・振動あり」のアラームを登録します。通知が届かない場合に備え、15分ごとの定期同期も残します。",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -243,6 +245,42 @@ fun SettingsScreen(vm: MainViewModel, onOpenLog: () -> Unit, onOpenReliability: 
                     }, modifier = Modifier.weight(1f)) { Text("同期状態") }
                 }
                 if (romanceStatus.isNotBlank()) Text(romanceStatus, style = MaterialTheme.typography.bodySmall)
+
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Text("Gmail通知を受けたら即同期", modifier = Modifier.weight(1f))
+                    Switch(
+                        checked = romanceInstantSyncEnabled,
+                        onCheckedChange = { enabled ->
+                            romanceInstantSyncEnabled = enabled
+                            RomancecarDirectSyncSettings.setInstantSyncEnabled(context, enabled)
+                            if (enabled) {
+                                romanceStatus = "端末側で「ロマンスカー自動同期」の通知アクセスを許可してください"
+                                runCatching {
+                                    context.startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
+                                }.onFailure {
+                                    romanceStatus = "通知へのアクセス画面を開けませんでした。Androidの設定から手動で許可してください"
+                                }
+                            } else {
+                                romanceStatus = "Gmail通知連動をOFFにしました。15分ごとの確認は維持します"
+                            }
+                        },
+                    )
+                }
+                Text(
+                    "プライバシー：通知アクセス権限はシステム上すべてのアプリの通知を参照可能にしますが、この機能のコードはGmailアプリの通知発生だけを検知し、件名・本文・他アプリの通知内容を読み取りません。任意でOFFにできます。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                OutlinedButton(
+                    onClick = {
+                        runCatching {
+                            context.startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
+                        }.onFailure {
+                            romanceStatus = "設定画面を開けませんでした。Androidの通知へのアクセスから許可してください"
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text("通知アクセス権限を設定") }
 
                 Text(
                     "MacroDroid不要の初期設定はGitHubの integrations/ROMANCECAR_DIRECT.md を参照。新規予約は到着12時間前から登録します。",
