@@ -38,40 +38,11 @@ class RomancecarImportReceiver : BroadcastReceiver() {
         app.appScope.launch {
             try {
                 withTimeout(9_000L) {
-                    val repo = app.container.repository
-                    val group = repo.getGroups().firstOrNull { it.name == GROUP_NAME }
-                    val groupId = group?.id ?: repo.addGroup(GROUP_NAME)
-                    val time = Calendar.getInstance().apply { timeInMillis = alarmAt }
-                    val current = repo.getAlarms().firstOrNull {
-                        it.groupId == groupId && RomancecarAutomation.matchesBooking(it.label, label, station)
-                    }
-                    val requested = AlarmItem(
-                        id = current?.id ?: 0,
-                        groupId = groupId,
-                        label = label,
-                        hour = time.get(Calendar.HOUR_OF_DAY),
-                        minute = time.get(Calendar.MINUTE),
-                        weekdaysMask = 0,
-                        enabled = true,
-                        soundMode = SoundMode.VIBRATE_ONLY,
-                        vibrationEnabled = true,
-                        vibrationPattern = VibrationPattern.LONG,
-                        snoozeEnabled = false,
-                        maxSnoozeCount = 0,
-                        autoStopMinutes = 2,
-                        createdAt = current?.createdAt ?: System.currentTimeMillis(),
-                    )
-                    val result = repo.saveAlarmChecked(requested)
-                    val scheduled = when {
-                        result.scheduled -> true
-                        result.duplicateOf != null -> repo.setAlarmEnabled(result.duplicateOf, true)
-                        else -> false
-                    }
+                    val scheduled = RomancecarAlarmImporter.import(app, arrivalMs, station)
                     if (scheduled) {
-                        NextAlarmWidgetProvider.refresh(context)
-                        Log.i(TAG, "Arrival alarm scheduled: $label")
+                        Log.i(TAG, "Arrival alarm accepted by shared importer")
                     } else {
-                        Log.e(TAG, "Arrival alarm was not scheduled: ${result.error ?: "exact alarm failure"}")
+                        Log.e(TAG, "Arrival alarm was not scheduled")
                     }
                 }
             } catch (error: Exception) {
