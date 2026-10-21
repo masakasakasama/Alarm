@@ -22,6 +22,16 @@ function checkRomancecarMails() {
   const messages = GmailApp.search('from:no-reply@maasjapan.net subject:ロマンスカー newer_than:45d -in:trash', 0, 60)
     .flatMap(thread => thread.getMessages())
     .sort((a, b) => a.getDate().getTime() - b.getDate().getTime());
+  // Keep only the newest message for each EMot confirmation code. Without this,
+  // an older purchase email could be picked up later when its original arrival
+  // enters the 12-hour window and silently overwrite a changed reservation.
+  const newestByConfirmation = {};
+  for (const msg of messages) {
+    const found = msg.getPlainBody().match(/確認番号\s*[：:]\s*(E[0-9A-Za-z]{3,10})/);
+    if (found && /購入完了|変更完了/.test(msg.getSubject())) {
+      newestByConfirmation[found[1]] = msg.getId();
+    }
+  }
   const now = Date.now();
   for (const msg of messages) {
     const key = 'processed_' + msg.getId();
@@ -31,6 +41,11 @@ function checkRomancecarMails() {
       continue;
     }
     const body = msg.getPlainBody();
+    const confirmationForMessage = body.match(/確認番号\s*[：:]\s*(E[0-9A-Za-z]{3,10})/);
+    if (confirmationForMessage && newestByConfirmation[confirmationForMessage[1]] !== msg.getId()) {
+      props.setProperty(key, String(now));
+      continue;
+    }
     const date = body.match(/乗車日\s*[：:]\s*(\d{4})\/(\d{1,2})\/(\d{1,2})/);
     const route = body.match(/時間および区間\s*[：:]\s*\d{1,2}:\d{2}\s*[^\r\n]*?[→➡]\s*(\d{1,2}):(\d{2})\s+([^\r\n]+)/);
     if (!date || !route) {
