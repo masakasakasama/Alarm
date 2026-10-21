@@ -39,6 +39,10 @@ function checkRomancecarMails() {
     const year = Number(date[1]), month = Number(date[2]), day = Number(date[3]);
     const hour = Number(route[1]), minute = Number(route[2]);
     const station = route[3].trim().slice(0, 24);
+    // The EMot confirmation number is stable across ticket changes (unlike ticket ID).
+    // Include it in the station variable so MacroDroid still needs just three Intent extras.
+    const confirmation = body.match(/確認番号\s*[：:]\s*(E[0-9A-Za-z]{3,10})/);
+    const destination = station + (confirmation ? '|' + confirmation[1] : '');
     if (month < 1 || month > 12 || day < 1 || day > 31 || hour < 0 || hour > 23 ||
         minute < 0 || minute > 59) throw new Error('Invalid date/time in: ' + msg.getId());
     // JST = UTC+09:00, year/month/day refer to local Japanese train times.
@@ -54,7 +58,7 @@ function checkRomancecarMails() {
       continue;
     }
     const url = endpoint + '?arrival_ms=' + encodeURIComponent(String(arrivalMs)) +
-      '&station=' + encodeURIComponent(station);
+      '&station=' + encodeURIComponent(destination);
     const response = UrlFetchApp.fetch(url, {muteHttpExceptions: true});
     if (response.getResponseCode() < 200 || response.getResponseCode() >= 300) {
       throw new Error('MacroDroid webhook HTTP ' + response.getResponseCode());
