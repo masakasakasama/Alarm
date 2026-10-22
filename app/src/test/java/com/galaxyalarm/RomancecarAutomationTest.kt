@@ -32,4 +32,20 @@ class RomancecarAutomationTest {
             RomancecarAutomation.label(1_800_000_000_000L, "新宿"),
         )
     }
+    @Test fun boardingAndArrivalKeepSeparateIdentitiesForSameBooking() {
+        val at = 1_800_000_000_000L
+        val boarding = RomancecarAutomation.label(at, "新宿|E123", departure = true)
+        val arrival = RomancecarAutomation.label(at, "本厚木|E123")
+        org.junit.Assert.assertTrue(boarding.startsWith("ロマンスカー乗車3分前 "))
+        org.junit.Assert.assertTrue(RomancecarAutomation.matchesBooking(boarding,
+            RomancecarAutomation.label(at + 60_000L, "町田|E123", true), "町田|E123", true))
+        org.junit.Assert.assertFalse(RomancecarAutomation.matchesBooking(arrival, boarding, "新宿|E123", true))
+        org.junit.Assert.assertFalse(RomancecarAutomation.matchesBooking(boarding, arrival, "本厚木|E123"))
+    }
+
+    @Test fun boardingBeforeMidnightUsesPreviousDayForAlarm() {
+        val at = java.time.Instant.parse("2026-10-23T15:01:00Z").toEpochMilli()
+        assertEquals(at - 180_000L, RomancecarAutomation.alarmTimestamp(at, at - 3_600_000L))
+        org.junit.Assert.assertTrue(RomancecarAutomation.label(at, "新宿|E123", true).contains("2026/10/24"))
+    }
 }
