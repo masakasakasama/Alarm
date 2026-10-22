@@ -58,6 +58,18 @@ class RomancecarDirectSyncWorker(
                 if (!RomancecarAlarmImporter.import(app, arrival, station)) {
                     throw IllegalStateException("OS alarm scheduling failed")
                 }
+                // Old feeds remain compatible: arrival still works until GAS is updated.
+                if (booking.has("departure_ms")) {
+                    val departure = booking.getLong("departure_ms")
+                    val departureStation = booking.getString("departure_station")
+                    if (departure <= 0L || departure >= arrival ||
+                        departureStation.isBlank() || departureStation.length > 100) {
+                        throw IllegalStateException("Invalid departure metadata")
+                    }
+                    if (!RomancecarAlarmImporter.import(app, departure, departureStation, departure = true)) {
+                        throw IllegalStateException("OS departure alarm scheduling failed")
+                    }
+                }
                 successCount++
             }
             RomancecarDirectSyncSettings.recordSuccess(context, successCount)

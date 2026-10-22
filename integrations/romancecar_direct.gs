@@ -40,11 +40,11 @@ function findRomancecarBookings_() {
   for (const message of messages) {
     const body = message.getPlainBody();
     const date = body.match(/乗車日\s*[：:]\s*(\d{4})\/(\d{1,2})\/(\d{1,2})/);
-    const route = body.match(/時間および区間\s*[：:]\s*\d{1,2}:\d{2}\s*[^\r\n]*?[→➡]\s*(\d{1,2}):(\d{2})\s+([^\r\n]+)/);
+    const route = body.match(/時間および区間\s*[：:]\s*(\d{1,2}):(\d{2})\s+([^\r\n]*?)[→➡]\s*(\d{1,2}):(\d{2})\s+([^\r\n]+)/);
     if (!date || !route) continue;
 
     const year = Number(date[1]), month = Number(date[2]), day = Number(date[3]);
-    const hour = Number(route[1]), minute = Number(route[2]);
+    const hour = Number(route[4]), minute = Number(route[5]);
     if (month < 1 || month > 12 || day < 1 || day > 31 ||
         hour < 0 || hour > 23 || minute < 0 || minute > 59) continue;
     const arrivalMs = Date.UTC(year, month - 1, day, hour - 9, minute);
@@ -55,12 +55,20 @@ function findRomancecarBookings_() {
     // Codes in EMot purchase and change emails are stable within the booking.
     const confirmation = body.match(/確認番号\s*[：:]\s*(E[0-9A-Za-z]{3,10})/);
     const code = confirmation ? confirmation[1] : null;
-    const station = route[3].trim().slice(0, 24);
-    if (!station || arrivalMs < now - 24 * 60 * 60 * 1000 ||
-        arrivalMs > now + 45 * 24 * 60 * 60 * 1000) continue;
+    const station = route[6].trim().slice(0, 24);
+    const departureStation = route[3].trim().slice(0, 24);
+    const departureHour = Number(route[1]), departureMinute = Number(route[2]);
+    if (!departureStation || departureHour > 23 || departureMinute > 59) continue;
+    const departureMs = Date.UTC(year, month - 1, day, departureHour - 9, departureMinute);
+    // A train arriving after midnight belongs to the next calendar day.
+    const finalArrivalMs = arrivalMs < departureMs ? arrivalMs + 24 * 60 * 60 * 1000 : arrivalMs;
+    if (!station || finalArrivalMs < now - 24 * 60 * 60 * 1000 ||
+        finalArrivalMs > now + 45 * 24 * 60 * 60 * 1000) continue;
     const key = code || message.getId();
     byCode[key] = {
-      arrival_ms: arrivalMs,
+      arrival_ms: finalArrivalMs,
+      departure_ms: departureMs,
+      departure_station: departureStation + (code ? '|' + code : ''),
       station: station + (code ? '|' + code : ''),
     };
   }

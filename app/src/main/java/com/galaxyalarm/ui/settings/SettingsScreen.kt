@@ -197,9 +197,9 @@ fun SettingsScreen(vm: MainViewModel, onOpenLog: () -> Unit, onOpenReliability: 
 
         SectionCard(Modifier.fillMaxWidth()) {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("ロマンスカー到着アラーム", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+                Text("ロマンスカー乗降アラーム", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
                 Text(
-                    "Gmailのスマホ通知を検知してすぐ同期し、到着3分前に「音なし・振動あり」のアラームを登録します。通知が届かない場合に備え、15分ごとの定期同期も残します。",
+                    "Gmailのスマホ通知を検知してすぐ同期し、乗車3分前と降車3分前に「音無し」グループへ音なし・振動ありで登録します。通知が届かない場合に備え、15分ごとの定期同期も残します。",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -283,7 +283,7 @@ fun SettingsScreen(vm: MainViewModel, onOpenLog: () -> Unit, onOpenReliability: 
                 ) { Text("通知アクセス権限を設定") }
 
                 Text(
-                    "MacroDroid不要の初期設定はGitHubの integrations/ROMANCECAR_DIRECT.md を参照。新規予約は到着12時間前から登録します。",
+                    "MacroDroid不要の初期設定はGitHubの integrations/ROMANCECAR_DIRECT.md を参照。各アラームは発火12時間前から登録します。乗車用にはApps Scriptの最新版が必要です。",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
