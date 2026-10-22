@@ -33,7 +33,15 @@ function findRomancecarBookings_() {
     'from:no-reply@maasjapan.net subject:ロマンスカー newer_than:45d -in:trash',
     0, 80
   );
-  const messages = threads.flatMap(t => t.getMessages())
+  // Explicit self-mail test: a dedicated subject, sent and received by this account.
+  const testThreads = GmailApp.search(
+    'from:me to:me subject:"GALAXY-ALARM-TEST-7C94A2" newer_than:1d -in:trash',
+    0, 5
+  );
+  const testMessages = testThreads.flatMap(t => t.getMessages())
+    .filter(m => m.getSubject() === '[GALAXY-ALARM-TEST-7C94A2] ロマンスカー 購入完了' &&
+      m.getDate().getTime() > now - 60 * 60 * 1000);
+  const messages = threads.flatMap(t => t.getMessages()).concat(testMessages)
     .filter(m => /購入完了|変更完了/.test(m.getSubject()))
     .sort((a, b) => a.getDate().getTime() - b.getDate().getTime());
 

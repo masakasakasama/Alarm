@@ -5,9 +5,10 @@ const assert = require('node:assert/strict');
 const source = readFileSync(__dirname + '/romancecar_direct.gs', 'utf8');
 const now = Date.parse('2026-10-22T00:00:00Z');
 let messages = [];
+let testMessages = [];
 const context = vm.createContext({
   Date: class extends Date { static now() { return now; } },
-  GmailApp: {search: () => [{getMessages: () => messages}]},
+  GmailApp: {search: q => [{getMessages: () => q.includes('from:me') ? testMessages : messages}]},
   PropertiesService: {getScriptProperties: () => ({getProperty: () => 'x'.repeat(43)})},
   ContentService: {MimeType: {JSON:'json'},createTextOutput: text => ({text,setMimeType(){return this;}})},
   console,
@@ -37,3 +38,13 @@ assert.equal(bookings().length,0);
 const unauthorized=context.doPost({postData:{contents:JSON.stringify({token:'wrong'})}});
 assert.deepEqual(JSON.parse(unauthorized.text),{ok:false,error:'unauthorized'});
 console.log('PASS: departure/arrival, booking changes, midnight, invalid dates, past trips, authentication');
+
+messages=[];
+testMessages=[mail('09:20 テスト乗車駅 → 09:30 テスト降車駅','ETEST01','[GALAXY-ALARM-TEST-7C94A2] ロマンスカー 購入完了')];
+assert.equal(bookings().length,1);
+assert.equal(bookings()[0].departure_station,'テスト乗車駅|ETEST01');
+testMessages=[mail('09:20 テスト乗車駅 → 09:30 テスト降車駅','ETEST01','[GALAXY-ALARM-TEST-7C94A2] ロマンスカー 購入完了','2026/10/22',now-3600001)];
+assert.equal(bookings().length,0);
+testMessages=[mail('09:20 テスト乗車駅 → 09:30 テスト降車駅','ETEST01','ロマンスカー 購入完了')];
+assert.equal(bookings().length,0);
+console.log('PASS: dedicated self-mail test accepted; expired and unmarked tests excluded');
