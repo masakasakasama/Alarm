@@ -93,6 +93,7 @@ class AlarmApplication : Application() {
                     current.reliabilityStore.presetsSeeded = true
                 }
                 current.repository.ensureDefaultGroup()
+                runCatching { com.galaxyalarm.automation.RomancecarAlarmImporter.migrate(this@AlarmApplication) }
                 current.repository.consolidateExactDuplicates()
             }
 

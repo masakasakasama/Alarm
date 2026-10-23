@@ -1,5 +1,7 @@
 package com.galaxyalarm.data.repo
 
+import com.galaxyalarm.automation.RomancecarAlarmImporter
+import com.galaxyalarm.automation.RomancecarAlarmSlots
 import com.galaxyalarm.data.dao.AlarmEventLogDao
 import com.galaxyalarm.data.dao.AlarmGroupDao
 import com.galaxyalarm.data.dao.AlarmItemDao
@@ -369,6 +371,49 @@ class AlarmRepository(
             }
         }
         duplicates.size
+    }
+
+    /** Upgrade old dated Romancecar rows without merging unrelated manual/repeating alarms. */
+    suspend fun consolidateRomancecarSlots(): Set<Long> = saveMutex.withLock {
+        val groups = groupDao.getAll()
+        val sourceGroups = groups.filter {
+            it.name == RomancecarAlarmImporter.GROUP || it.name == RomancecarAlarmImporter.LEGACY_GROUP
+        }.mapTo(mutableSetOf()) { it.id }
+        val alarms = alarmDao.getAll()
+        val legacy = alarms.filter {
+            it.groupId in sourceGroups && RomancecarAlarmSlots.isLegacyLabel(it.label) &&
+                RomancecarAlarmSlots.isSilentOneTime(it)
+        }
+        if (legacy.isEmpty()) return@withLock emptySet()
+        val groupId = groups.firstOrNull { it.name == RomancecarAlarmImporter.GROUP }?.id
+            ?: addGroup(RomancecarAlarmImporter.GROUP)
+        val managedIds = mutableSetOf<Long>()
+        for ((time, oldRows) in legacy.groupBy { it.hour to it.minute }) {
+            val manual = alarms.filter {
+                it.groupId == groupId && it.hour == time.first && it.minute == time.second &&
+                    RomancecarAlarmSlots.isSilentOneTime(it) && !RomancecarAlarmSlots.isLegacyLabel(it.label)
+            }
+            val keeper = (manual.ifEmpty { oldRows }).sortedWith(
+                compareByDescending<AlarmItem> { it.enabled }.thenBy { it.id }
+            ).first()
+            val updated = keeper.copy(
+                groupId = groupId,
+                label = if (RomancecarAlarmSlots.isLegacyLabel(keeper.label)) "" else keeper.label,
+                enabled = keeper.enabled || oldRows.any { it.enabled },
+            )
+            if (updated.enabled) {
+                enableGroupForAlarm(groupId)
+                check(scheduler.replaceAlarm(updated)) { "Could not migrate Romancecar alarm" }
+            }
+            val duplicates = oldRows.filter { it.id != keeper.id }
+            database.withTransaction {
+                alarmDao.update(updated)
+                duplicates.forEach { alarmDao.delete(it) }
+            }
+            duplicates.forEach { scheduler.cancelAlarm(it.id) }
+            if (manual.isEmpty() || !keeper.enabled && updated.enabled) managedIds += keeper.id
+        }
+        managedIds
     }
 
     suspend fun deleteAlarm(item: AlarmItem) {

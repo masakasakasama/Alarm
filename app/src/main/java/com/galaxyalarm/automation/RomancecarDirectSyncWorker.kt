@@ -49,15 +49,14 @@ class RomancecarDirectSyncWorker(
             if (bookings.length() > 60) throw IllegalStateException("Unexpected booking count")
             val app = context as AlarmApplication
             var successCount = 0
+            val events = mutableListOf<RomancecarAlarmImporter.Event>()
             for (index in 0 until bookings.length()) {
                 val booking = bookings.getJSONObject(index)
                 val arrival = booking.getLong("arrival_ms")
                 val station = booking.getString("station")
                 if (station.isBlank() || station.length > 100) continue
                 if (arrival <= now || arrival > now + 45L * 24L * 60L * 60_000L) continue
-                if (!RomancecarAlarmImporter.import(app, arrival, station)) {
-                    throw IllegalStateException("OS alarm scheduling failed")
-                }
+                events += RomancecarAlarmImporter.Event(arrival, station)
                 // Old feeds remain compatible: arrival still works until GAS is updated.
                 if (booking.has("departure_ms")) {
                     val departure = booking.getLong("departure_ms")
@@ -66,11 +65,12 @@ class RomancecarDirectSyncWorker(
                         departureStation.isBlank() || departureStation.length > 100) {
                         throw IllegalStateException("Invalid departure metadata")
                     }
-                    if (!RomancecarAlarmImporter.import(app, departure, departureStation, departure = true)) {
-                        throw IllegalStateException("OS departure alarm scheduling failed")
-                    }
+                    events += RomancecarAlarmImporter.Event(departure, departureStation, departure = true)
                 }
                 successCount++
+            }
+            if (!RomancecarAlarmImporter.sync(app, events)) {
+                throw IllegalStateException("OS alarm scheduling failed")
             }
             RomancecarDirectSyncSettings.recordSuccess(context, successCount)
             Result.success()
