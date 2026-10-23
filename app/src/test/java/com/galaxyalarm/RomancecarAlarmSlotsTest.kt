@@ -28,7 +28,7 @@ class RomancecarAlarmSlotsTest {
     private lateinit var repo: AlarmRepository
 
     @Before fun setup() {
-        val context = RuntimeEnvironment.getApplication<android.app.Application>()
+        val context = RuntimeEnvironment.getApplication()
         context.getSharedPreferences("romancecar_alarm_slots", 0).edit().clear().commit()
         db = Room.inMemoryDatabaseBuilder(context, AppDatabase::class.java).build()
         val scheduler = AlarmScheduler(context, db.groupDao(), db.alarmDao(), db.occurrenceDao(),
@@ -79,7 +79,7 @@ class RomancecarAlarmSlotsTest {
         assertNull(RomancecarAlarmSlots.select(alarms, 1, 14, 17))
     }
     @Test fun repeatedSyncAndDifferentBookingsUseOneUnlabelledAlarm() = runBlocking {
-        val context = RuntimeEnvironment.getApplication<android.app.Application>()
+        val context = RuntimeEnvironment.getApplication()
         val at = System.currentTimeMillis() + 30 * 60_000L
         assertTrue(RomancecarAlarmImporter.sync(context, repo, listOf(Event(at, "新宿|E123", true))))
         val first = repo.getAlarms().single()
@@ -92,7 +92,7 @@ class RomancecarAlarmSlotsTest {
     }
 
     @Test fun bookingChangeKeepsSharedSlotUntilNoBookingNeedsIt() = runBlocking {
-        val context = RuntimeEnvironment.getApplication<android.app.Application>()
+        val context = RuntimeEnvironment.getApplication()
         val at = System.currentTimeMillis() + 30 * 60_000L
         val firstBooking = Event(at, "新宿|E123", true)
         val secondBooking = Event(at, "新宿|E124", true)
@@ -111,7 +111,7 @@ class RomancecarAlarmSlotsTest {
     }
 
     @Test fun syncDoesNotClaimAnAlreadyEnabledManualSlot() = runBlocking {
-        val context = RuntimeEnvironment.getApplication<android.app.Application>()
+        val context = RuntimeEnvironment.getApplication()
         val group = db.groupDao().insert(AlarmGroup(name = "音無し"))
         val at = System.currentTimeMillis() + 30 * 60_000L
         val time = java.util.Calendar.getInstance().apply { timeInMillis = at - 180_000L }
