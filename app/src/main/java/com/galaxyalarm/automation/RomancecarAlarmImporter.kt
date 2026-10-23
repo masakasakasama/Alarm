@@ -1,5 +1,7 @@
 package com.galaxyalarm.automation
 
+import android.content.Context
+import com.galaxyalarm.data.repo.AlarmRepository
 import com.galaxyalarm.AlarmApplication
 import com.galaxyalarm.data.entity.AlarmItem
 import com.galaxyalarm.data.model.SoundMode
@@ -20,9 +22,14 @@ object RomancecarAlarmImporter {
 
     data class Event(val atMs: Long, val station: String, val departure: Boolean = false)
 
-    suspend fun sync(app: AlarmApplication, events: List<Event>): Boolean = importMutex.withLock {
-        reconcile(app, events, "direct")
+    suspend fun sync(app: AlarmApplication, events: List<Event>): Boolean {
+        val ok = sync(app, app.container.repository, events)
+        if (ok) NextAlarmWidgetProvider.refresh(app)
+        return ok
     }
+
+    internal suspend fun sync(context: Context, repository: AlarmRepository, events: List<Event>): Boolean =
+        importMutex.withLock { reconcile(context, repository, events, "direct") }
 
     /** MacroDroid supplies one event at a time; retain its other upcoming arrivals. */
     suspend fun import(
@@ -35,10 +42,12 @@ object RomancecarAlarmImporter {
                 RomancecarAutomation.bookingCode(it.station) == code
             } else it.station == station && it.atMs == arrivalMs
         }
-        reconcile(app, previous + Event(arrivalMs, station, departure), "bridge")
+        val ok = reconcile(app, app.container.repository, previous + Event(arrivalMs, station, departure), "bridge")
+        if (ok) NextAlarmWidgetProvider.refresh(app)
+        ok
     }
 
-    private fun readEvents(app: AlarmApplication, source: String): List<Event> {
+    private fun readEvents(app: Context, source: String): List<Event> {
         val raw = app.getSharedPreferences(PREFS, 0).getString(source, "[]") ?: "[]"
         return runCatching {
             val array = JSONArray(raw)
@@ -49,20 +58,21 @@ object RomancecarAlarmImporter {
         }.getOrDefault(emptyList())
     }
 
-    suspend fun migrate(app: AlarmApplication) = importMutex.withLock { migrateLocked(app) }
+    suspend fun migrate(app: AlarmApplication) = importMutex.withLock { migrateLocked(app, app.container.repository) }
 
-    private suspend fun migrateLocked(app: AlarmApplication) {
-        val migrated = app.container.repository.consolidateRomancecarSlots()
+    private suspend fun migrateLocked(app: Context, repository: AlarmRepository) {
+        val migrated = repository.consolidateRomancecarSlots()
         if (migrated.isEmpty()) return
         val prefs = app.getSharedPreferences(PREFS, 0)
         prefs.edit().putStringSet(MANAGED, prefs.getStringSet(MANAGED, emptySet()).orEmpty() +
             migrated.map { it.toString() }).commit()
     }
 
-    private suspend fun reconcile(app: AlarmApplication, events: List<Event>, source: String): Boolean {
+    private suspend fun reconcile(
+        app: Context, repository: AlarmRepository, events: List<Event>, source: String,
+    ): Boolean {
         if (events.size > 120 || events.any { it.station.isBlank() || it.station.length > 100 }) return false
-        val repository = app.container.repository
-        migrateLocked(app)
+        migrateLocked(app, repository)
         val prefs = app.getSharedPreferences(PREFS, 0)
         val now = System.currentTimeMillis()
         val other = readEvents(app, if (source == "direct") "bridge" else "direct")
@@ -84,7 +94,7 @@ object RomancecarAlarmImporter {
                 if (trips.any { it.atMs - 180_000L <= now + 60_000L }) current?.let { activeIds += it.id }
                 continue
             }
-            if (current?.enabled == true) {
+            if (current?.enabled == true && current.vibrationEnabled) {
                 activeIds += current.id
                 continue
             }
@@ -101,7 +111,7 @@ object RomancecarAlarmImporter {
             } ?: return false
             activeIds += id
             // An alarm that was already manually enabled is never claimed or disabled by this sync.
-            managed += id
+            if (current?.enabled != true) managed += id
             if (!prefs.edit().putStringSet(MANAGED, managed.mapTo(mutableSetOf()) { it.toString() }).commit()) {
                 return false
             }
@@ -119,7 +129,6 @@ object RomancecarAlarmImporter {
         }
         prefs.edit().putString(source, serialized.toString())
             .putStringSet(MANAGED, managed.intersect(keptIds).mapTo(mutableSetOf()) { it.toString() }).commit()
-        NextAlarmWidgetProvider.refresh(app)
         return true
     }
 }

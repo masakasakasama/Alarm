@@ -1,6 +1,8 @@
 package com.galaxyalarm
 
 import androidx.room.Room
+import com.galaxyalarm.automation.RomancecarAlarmImporter
+import com.galaxyalarm.automation.RomancecarAlarmImporter.Event
 import com.galaxyalarm.automation.RomancecarAlarmSlots
 import com.galaxyalarm.data.db.AppDatabase
 import com.galaxyalarm.data.entity.AlarmGroup
@@ -27,6 +29,7 @@ class RomancecarAlarmSlotsTest {
 
     @Before fun setup() {
         val context = RuntimeEnvironment.getApplication<android.app.Application>()
+        context.getSharedPreferences("romancecar_alarm_slots", 0).edit().clear().commit()
         db = Room.inMemoryDatabaseBuilder(context, AppDatabase::class.java).build()
         val scheduler = AlarmScheduler(context, db.groupDao(), db.alarmDao(), db.occurrenceDao(),
             db.eventLogDao(), PermissionChecker(context))
@@ -75,4 +78,52 @@ class RomancecarAlarmSlotsTest {
         assertEquals(10L, RomancecarAlarmSlots.select(alarms, 1, 13, 17)!!.id)
         assertNull(RomancecarAlarmSlots.select(alarms, 1, 14, 17))
     }
+    @Test fun repeatedSyncAndDifferentBookingsUseOneUnlabelledAlarm() = runBlocking {
+        val context = RuntimeEnvironment.getApplication<android.app.Application>()
+        val at = System.currentTimeMillis() + 30 * 60_000L
+        assertTrue(RomancecarAlarmImporter.sync(context, repo, listOf(Event(at, "新宿|E123", true))))
+        val first = repo.getAlarms().single()
+        assertEquals("", first.label)
+        assertTrue(RomancecarAlarmImporter.sync(context, repo, listOf(
+            Event(at, "新宿|E123", true), Event(at, "本厚木|E124"))))
+        assertEquals(first.id, repo.getAlarms().single().id)
+        assertTrue(repo.getAlarms().single().enabled)
+        assertEquals(1, repo.getAllScheduled().size)
+    }
+
+    @Test fun bookingChangeKeepsSharedSlotUntilNoBookingNeedsIt() = runBlocking {
+        val context = RuntimeEnvironment.getApplication<android.app.Application>()
+        val at = System.currentTimeMillis() + 30 * 60_000L
+        val firstBooking = Event(at, "新宿|E123", true)
+        val secondBooking = Event(at, "新宿|E124", true)
+        assertTrue(RomancecarAlarmImporter.sync(context, repo, listOf(firstBooking, secondBooking)))
+        val oldId = repo.getAlarms().single().id
+        val changed = secondBooking.copy(atMs = at + 10 * 60_000L)
+        assertTrue(RomancecarAlarmImporter.sync(context, repo, listOf(firstBooking, changed)))
+        assertTrue(repo.getAlarm(oldId)!!.enabled)
+        assertEquals(2, repo.getAlarms().count { it.enabled })
+        assertTrue(RomancecarAlarmImporter.sync(context, repo, listOf(changed)))
+        assertFalse(repo.getAlarm(oldId)!!.enabled)
+        assertEquals(1, repo.getAlarms().count { it.enabled })
+        assertEquals(2, repo.getAlarms().size)
+        assertTrue(RomancecarAlarmImporter.sync(context, repo, listOf(firstBooking, changed)))
+        assertEquals(2, repo.getAlarms().size)
+    }
+
+    @Test fun syncDoesNotClaimAnAlreadyEnabledManualSlot() = runBlocking {
+        val context = RuntimeEnvironment.getApplication<android.app.Application>()
+        val group = db.groupDao().insert(AlarmGroup(name = "音無し"))
+        val at = System.currentTimeMillis() + 30 * 60_000L
+        val time = java.util.Calendar.getInstance().apply { timeInMillis = at - 180_000L }
+        val manual = repo.saveAlarmChecked(AlarmItem(groupId = group,
+            hour = time.get(java.util.Calendar.HOUR_OF_DAY), minute = time.get(java.util.Calendar.MINUTE),
+            label = "自分のメモ", soundMode = SoundMode.VIBRATE_ONLY))
+        assertTrue(manual.scheduled)
+        assertTrue(RomancecarAlarmImporter.sync(context, repo, listOf(Event(at, "新宿|E123", true))))
+        assertEquals(1, repo.getAlarms().size)
+        assertTrue(RomancecarAlarmImporter.sync(context, repo, emptyList()))
+        assertTrue(repo.getAlarm(manual.alarmId)!!.enabled)
+        assertEquals("自分のメモ", repo.getAlarm(manual.alarmId)!!.label)
+    }
+
 }
