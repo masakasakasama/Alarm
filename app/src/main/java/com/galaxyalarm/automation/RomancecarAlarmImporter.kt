@@ -14,7 +14,8 @@ import org.json.JSONArray
 
 /** A booking can change without creating a second visible alarm at the same HH:mm. */
 object RomancecarAlarmImporter {
-    const val GROUP = "音無し"
+    const val GROUP = "ロマンスカー 8:31発"
+    const val PREVIOUS_GROUP = "音無し"
     const val LEGACY_GROUP = "ロマンスカー（自動）"
     private const val PREFS = "romancecar_alarm_slots"
     private const val MANAGED = "managed_ids"
@@ -79,6 +80,9 @@ object RomancecarAlarmImporter {
         val upcoming = (events + other).filter { it.atMs > now && it.atMs <= now + 45L * 24 * 60 * 60_000 }
         val groups = repository.getGroups()
         val groupId = groups.firstOrNull { it.name == GROUP }?.id ?: repository.addGroup(GROUP)
+        val automationGroupIds = groups.filter {
+            it.name == GROUP || it.name == PREVIOUS_GROUP || it.name == LEGACY_GROUP
+        }.mapTo(mutableSetOf()) { it.id }.apply { add(groupId) }
         val managed = prefs.getStringSet(MANAGED, emptySet()).orEmpty()
             .mapNotNull { it.toLongOrNull() }.toMutableSet()
         val activeIds = mutableSetOf<Long>()
@@ -88,17 +92,28 @@ object RomancecarAlarmImporter {
             }
         }
         for ((slot, trips) in slots) {
-            val current = RomancecarAlarmSlots.select(repository.getAlarms(), groupId, slot.first, slot.second)
+            val alarms = repository.getAlarms()
+            val current = RomancecarAlarmSlots.select(alarms, groupId, slot.first, slot.second)
+                ?: alarms.filter {
+                    it.id in managed && it.groupId in automationGroupIds &&
+                        it.hour == slot.first && it.minute == slot.second &&
+                        RomancecarAlarmSlots.isSilentOneTime(it)
+                }.sortedWith(compareByDescending<AlarmItem> { it.enabled }.thenBy { it.id }).firstOrNull()
             // Keep an already scheduled alarm during its final minute and while it is ringing.
             if (trips.none { RomancecarAutomation.alarmTimestamp(it.atMs, now) != null }) {
                 if (trips.any { it.atMs - 180_000L <= now + 60_000L }) current?.let { activeIds += it.id }
                 continue
             }
-            if (current?.enabled == true && current.vibrationEnabled) {
+            if (current?.groupId == groupId && current.enabled && current.vibrationEnabled) {
                 activeIds += current.id
                 continue
             }
-            val alarm = current?.copy(enabled = true, vibrationEnabled = true, soundMode = SoundMode.VIBRATE_ONLY)
+            val alarm = current?.copy(
+                groupId = groupId,
+                enabled = true,
+                vibrationEnabled = true,
+                soundMode = SoundMode.VIBRATE_ONLY,
+            )
                 ?: AlarmItem(
                     groupId = groupId, label = "", hour = slot.first, minute = slot.second,
                     weekdaysMask = 0, enabled = true, soundMode = SoundMode.VIBRATE_ONLY,
@@ -118,7 +133,7 @@ object RomancecarAlarmImporter {
         }
         for (id in managed - activeIds) {
             val alarm = repository.getAlarm(id) ?: continue
-            if (alarm.groupId == groupId && RomancecarAlarmSlots.isSilentOneTime(alarm) && alarm.enabled) {
+            if (alarm.groupId in automationGroupIds && RomancecarAlarmSlots.isSilentOneTime(alarm) && alarm.enabled) {
                 if (!repository.setAlarmEnabled(id, false)) return false
             }
         }
