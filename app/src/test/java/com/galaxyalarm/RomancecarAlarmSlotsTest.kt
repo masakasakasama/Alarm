@@ -43,7 +43,7 @@ class RomancecarAlarmSlotsTest {
     )
 
     @Test fun upgradeMergesDifferentDatesAndPhasesAtSameTimeAndClearsLabel() = runBlocking {
-        val group = db.groupDao().insert(AlarmGroup(name = "音無し"))
+        val group = db.groupDao().insert(AlarmGroup(name = RomancecarAlarmImporter.PREVIOUS_GROUP))
         val first = db.alarmDao().insert(legacy(group, "2026/10/23"))
         db.alarmDao().insert(legacy(group, "2026/10/24", departure = false))
         assertEquals(setOf(first), repo.consolidateRomancecarSlots())
@@ -55,8 +55,8 @@ class RomancecarAlarmSlotsTest {
     }
 
     @Test fun upgradeReusesManualSilentSlotAndKeepsOtherManualAlarmsOff() = runBlocking {
-        val group = db.groupDao().insert(AlarmGroup(name = "音無し"))
-        val old = db.groupDao().insert(AlarmGroup(name = "ロマンスカー（自動）"))
+        val group = db.groupDao().insert(AlarmGroup(name = RomancecarAlarmImporter.GROUP))
+        val old = db.groupDao().insert(AlarmGroup(name = RomancecarAlarmImporter.LEGACY_GROUP))
         val manual = db.alarmDao().insert(legacy(group, "").copy(label = ""))
         val unrelated = db.alarmDao().insert(legacy(group, "").copy(label = "", minute = 20))
         db.alarmDao().insert(legacy(old, "2026/10/23").copy(enabled = true))
@@ -110,9 +110,35 @@ class RomancecarAlarmSlotsTest {
         assertEquals(2, repo.getAlarms().size)
     }
 
+    @Test fun managedSlotFromPreviousGroupMovesIntoExistingRomancecar831Group() = runBlocking {
+        val context = RuntimeEnvironment.getApplication()
+        val targetGroup = db.groupDao().insert(AlarmGroup(name = RomancecarAlarmImporter.GROUP))
+        val previousGroup = db.groupDao().insert(AlarmGroup(name = RomancecarAlarmImporter.PREVIOUS_GROUP))
+        val at = System.currentTimeMillis() + 30 * 60_000L
+        val time = java.util.Calendar.getInstance().apply { timeInMillis = at - 180_000L }
+        val old = repo.saveAlarmChecked(AlarmItem(
+            groupId = previousGroup,
+            hour = time.get(java.util.Calendar.HOUR_OF_DAY),
+            minute = time.get(java.util.Calendar.MINUTE),
+            label = "",
+            soundMode = SoundMode.VIBRATE_ONLY,
+            vibrationEnabled = true,
+        ))
+        assertTrue(old.scheduled)
+        context.getSharedPreferences("romancecar_alarm_slots", 0).edit()
+            .putStringSet("managed_ids", setOf(old.alarmId.toString())).commit()
+
+        assertTrue(RomancecarAlarmImporter.sync(context, repo, listOf(Event(at, "新宿|E831", true))))
+
+        val moved = repo.getAlarm(old.alarmId)!!
+        assertEquals(targetGroup, moved.groupId)
+        assertTrue(moved.enabled)
+        assertEquals(1, repo.getAlarms().size)
+    }
+
     @Test fun syncDoesNotClaimAnAlreadyEnabledManualSlot() = runBlocking {
         val context = RuntimeEnvironment.getApplication()
-        val group = db.groupDao().insert(AlarmGroup(name = "音無し"))
+        val group = db.groupDao().insert(AlarmGroup(name = RomancecarAlarmImporter.GROUP))
         val at = System.currentTimeMillis() + 30 * 60_000L
         val time = java.util.Calendar.getInstance().apply { timeInMillis = at - 180_000L }
         val manual = repo.saveAlarmChecked(AlarmItem(groupId = group,

@@ -377,7 +377,9 @@ class AlarmRepository(
     suspend fun consolidateRomancecarSlots(): Set<Long> = saveMutex.withLock {
         val groups = groupDao.getAll()
         val sourceGroups = groups.filter {
-            it.name == RomancecarAlarmImporter.GROUP || it.name == RomancecarAlarmImporter.LEGACY_GROUP
+            it.name == RomancecarAlarmImporter.GROUP ||
+                it.name == RomancecarAlarmImporter.PREVIOUS_GROUP ||
+                it.name == RomancecarAlarmImporter.LEGACY_GROUP
         }.mapTo(mutableSetOf()) { it.id }
         val alarms = alarmDao.getAll()
         val legacy = alarms.filter {
