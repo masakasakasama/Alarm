@@ -375,7 +375,7 @@ class AlarmRepository(
 
     /** Merge the duplicate 8:31 groups without replacing OS reservations or snoozes. */
     suspend fun mergeRomancecar831Groups() = saveMutex.withLock {
-        database.withTransaction {
+        scheduler.withSchedulingLock { database.withTransaction {
             val groups = groupDao.getAll()
             val target = groups.firstOrNull { it.name == RomancecarAlarmImporter.SHORT_GROUP }
                 ?: return@withTransaction
@@ -389,7 +389,7 @@ class AlarmRepository(
                 occurrenceDao.moveGroup(source.id, target.id)
                 groupDao.delete(source)
             }
-        }
+        } }
     }
 
     /** Upgrade old dated Romancecar rows without merging unrelated manual/repeating alarms. */

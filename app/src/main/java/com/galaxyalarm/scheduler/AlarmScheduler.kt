@@ -39,6 +39,9 @@ class AlarmScheduler(
         context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
     private val mutex = Mutex()
 
+    /** Keep group identity changes atomic with respect to OS reservation updates. */
+    suspend fun <T> withSchedulingLock(block: suspend () -> T): T = mutex.withLock { block() }
+
     /** Room と AlarmManager を、既存予約を先に失わないように整合させる。 */
     suspend fun rescheduleAll(reason: String) = mutex.withLock {
         Log.i(TAG, "rescheduleAll: $reason")
