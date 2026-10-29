@@ -10,6 +10,7 @@ import android.os.IBinder
 import android.os.Looper
 import android.os.PowerManager
 import android.util.Log
+import androidx.room.withTransaction
 import com.galaxyalarm.AlarmApplication
 import com.galaxyalarm.data.entity.AlarmEventLog
 import com.galaxyalarm.data.model.EventResult
@@ -119,8 +120,11 @@ class AlarmService : Service() {
                         occ.status == OccurrenceStatus.FIRED &&
                         !ActiveAlarms.contains(occ.id)
                 if (occ.status != OccurrenceStatus.SCHEDULED && !recoveringInterruptedFire) return@launch
-                val alarm = container.db.alarmDao().getById(occ.alarmId) ?: return@launch
-                val group = container.db.groupDao().getById(alarm.groupId) ?: return@launch
+                val (alarm, group) = container.db.withTransaction {
+                    val alarm = container.db.alarmDao().getById(occ.alarmId) ?: return@withTransaction null
+                    val group = container.db.groupDao().getById(alarm.groupId) ?: return@withTransaction null
+                    alarm to group
+                } ?: return@launch
                 val isOneShotRecovery = recoveringInterruptedFire &&
                     !com.galaxyalarm.data.model.Weekdays.isRepeating(alarm.weekdaysMask)
                 val isScheduledSnooze = occ.snoozeCount > 0

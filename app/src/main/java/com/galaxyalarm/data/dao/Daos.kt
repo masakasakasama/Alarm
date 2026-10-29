@@ -50,6 +50,8 @@ interface AlarmItemDao {
     suspend fun setEnabled(id: Long, enabled: Boolean, now: Long)
     @Query("UPDATE alarm_items SET enabled = :enabled, updatedAt = :now WHERE groupId = :groupId")
     suspend fun setEnabledForGroup(groupId: Long, enabled: Boolean, now: Long)
+    @Query("UPDATE alarm_items SET groupId = :targetId WHERE groupId = :sourceId")
+    suspend fun moveGroup(sourceId: Long, targetId: Long)
     @Query("SELECT COUNT(*) FROM alarm_items WHERE groupId = :groupId AND enabled = 1")
     suspend fun enabledCountInGroup(groupId: Long): Int
     @Query("SELECT COUNT(*) FROM alarm_items")
@@ -58,6 +60,8 @@ interface AlarmItemDao {
 
 @Dao
 interface ScheduledOccurrenceDao {
+    @Query("UPDATE scheduled_occurrences SET groupId = :targetId WHERE groupId = :sourceId")
+    suspend fun moveGroup(sourceId: Long, targetId: Long)
     @Insert(onConflict = OnConflictStrategy.ABORT)
     suspend fun insert(occ: ScheduledOccurrence): Long
     /** Commit the occurrence and its PendingIntent identity together, never a placeholder row. */

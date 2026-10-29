@@ -150,7 +150,7 @@ class AlarmRepository(
                 PresetAlarm(12, 59),
                 PresetAlarm(13, 0),
             )),
-            PresetGroup("ロマンスカー 8:31発", listOf(
+            PresetGroup("ロマ 8:31発", listOf(
                 PresetAlarm(7, 15),
                 PresetAlarm(7, 20),
                 PresetAlarm(7, 25),
@@ -373,11 +373,31 @@ class AlarmRepository(
         duplicates.size
     }
 
+    /** Merge the duplicate 8:31 groups without replacing OS reservations or snoozes. */
+    suspend fun mergeRomancecar831Groups() = saveMutex.withLock {
+        database.withTransaction {
+            val groups = groupDao.getAll()
+            val target = groups.firstOrNull { it.name == RomancecarAlarmImporter.SHORT_GROUP }
+                ?: return@withTransaction
+            val sources = groups.filter { it.name == RomancecarAlarmImporter.GROUP && it.id != target.id }
+            if (sources.isEmpty()) return@withTransaction
+            if (!target.enabled && sources.any { it.enabled }) {
+                groupDao.setEnabled(target.id, true, System.currentTimeMillis())
+            }
+            for (source in sources) {
+                alarmDao.moveGroup(source.id, target.id)
+                occurrenceDao.moveGroup(source.id, target.id)
+                groupDao.delete(source)
+            }
+        }
+    }
+
     /** Upgrade old dated Romancecar rows without merging unrelated manual/repeating alarms. */
     suspend fun consolidateRomancecarSlots(): Set<Long> = saveMutex.withLock {
         val groups = groupDao.getAll()
         val sourceGroups = groups.filter {
             it.name == RomancecarAlarmImporter.GROUP ||
+                it.name == RomancecarAlarmImporter.SHORT_GROUP ||
                 it.name == RomancecarAlarmImporter.PREVIOUS_GROUP ||
                 it.name == RomancecarAlarmImporter.LEGACY_GROUP
         }.mapTo(mutableSetOf()) { it.id }
@@ -387,7 +407,8 @@ class AlarmRepository(
                 RomancecarAlarmSlots.isSilentOneTime(it)
         }
         if (legacy.isEmpty()) return@withLock emptySet()
-        val groupId = groups.firstOrNull { it.name == RomancecarAlarmImporter.GROUP }?.id
+        val groupId = groups.firstOrNull { it.name == RomancecarAlarmImporter.SHORT_GROUP }?.id
+            ?: groups.firstOrNull { it.name == RomancecarAlarmImporter.GROUP }?.id
             ?: addGroup(RomancecarAlarmImporter.GROUP)
         val managedIds = mutableSetOf<Long>()
         for ((time, oldRows) in legacy.groupBy { it.hour to it.minute }) {

@@ -15,6 +15,7 @@ import org.json.JSONArray
 /** A booking can change without creating a second visible alarm at the same HH:mm. */
 object RomancecarAlarmImporter {
     const val GROUP = "ロマンスカー 8:31発"
+    const val SHORT_GROUP = "ロマ 8:31発"
     const val PREVIOUS_GROUP = "音無し"
     const val LEGACY_GROUP = "ロマンスカー（自動）"
     private const val PREFS = "romancecar_alarm_slots"
@@ -62,6 +63,7 @@ object RomancecarAlarmImporter {
     suspend fun migrate(app: AlarmApplication) = importMutex.withLock { migrateLocked(app, app.container.repository) }
 
     private suspend fun migrateLocked(app: Context, repository: AlarmRepository) {
+        repository.mergeRomancecar831Groups()
         val migrated = repository.consolidateRomancecarSlots()
         if (migrated.isEmpty()) return
         val prefs = app.getSharedPreferences(PREFS, 0)
@@ -79,9 +81,10 @@ object RomancecarAlarmImporter {
         val other = readEvents(app, if (source == "direct") "bridge" else "direct")
         val upcoming = (events + other).filter { it.atMs > now && it.atMs <= now + 45L * 24 * 60 * 60_000 }
         val groups = repository.getGroups()
-        val groupId = groups.firstOrNull { it.name == GROUP }?.id ?: repository.addGroup(GROUP)
+        val groupId = groups.firstOrNull { it.name == SHORT_GROUP }?.id
+            ?: groups.firstOrNull { it.name == GROUP }?.id ?: repository.addGroup(SHORT_GROUP)
         val automationGroupIds = groups.filter {
-            it.name == GROUP || it.name == PREVIOUS_GROUP || it.name == LEGACY_GROUP
+            it.name == SHORT_GROUP || it.name == GROUP || it.name == PREVIOUS_GROUP || it.name == LEGACY_GROUP
         }.mapTo(mutableSetOf()) { it.id }.apply { add(groupId) }
         val managed = prefs.getStringSet(MANAGED, emptySet()).orEmpty()
             .mapNotNull { it.toLongOrNull() }.toMutableSet()
