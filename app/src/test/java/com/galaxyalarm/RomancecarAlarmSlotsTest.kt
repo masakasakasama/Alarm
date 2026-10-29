@@ -76,6 +76,25 @@ class RomancecarAlarmSlotsTest {
         assertEquals(listOf(target), repo.getVisibleGroups().map { it.id })
     }
 
+    @Test fun restoreOldBackupDoesNotRecreateLong831Group() = runBlocking {
+        val backup = """{
+            "groups": [
+                {"localId": 1, "name": "ロマンスカー 8:31発"},
+                {"localId": 2, "name": "ロマ 8:31発"}
+            ],
+            "alarms": [
+                {"groupLocalId": 1, "groupName": "ロマンスカー 8:31発", "hour": 20, "minute": 39, "enabled": false},
+                {"groupLocalId": 2, "groupName": "ロマ 8:31発", "hour": 7, "minute": 15, "enabled": false}
+            ]
+        }"""
+        repo.mergeBackupJson(backup)
+        repo.mergeBackupJson(backup)
+        val target = repo.getVisibleGroups().single()
+        assertEquals(RomancecarAlarmImporter.SHORT_GROUP, target.name)
+        assertEquals(2, repo.getAlarms().size)
+        assertTrue(repo.getAlarms().all { it.groupId == target.id && !it.enabled })
+    }
+
     @Test fun upgradeMergesDifferentDatesAndPhasesAtSameTimeAndClearsLabel() = runBlocking {
         val group = db.groupDao().insert(AlarmGroup(name = RomancecarAlarmImporter.PREVIOUS_GROUP))
         val first = db.alarmDao().insert(legacy(group, "2026/10/23"))

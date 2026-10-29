@@ -534,7 +534,11 @@ class AlarmRepository(
             var insertedGroups = 0
             val groupsByName = groupDao.getAll().associateBy { it.name }.toMutableMap()
 
-            for (i in 0 until groupsJson.length()) {
+            // Resolve the short 8:31 name first, regardless of backup ordering.
+            val groupIndices = (0 until groupsJson.length()).sortedBy {
+                if (groupsJson.getJSONObject(it).optString("name") == RomancecarAlarmImporter.SHORT_GROUP) 0 else 1
+            }
+            for (i in groupIndices) {
                 val groupJson = groupsJson.getJSONObject(i)
                 val oldId = groupJson.optLong("localId", 0L)
                 val name = groupJson.optString("name").ifBlank { DEFAULT_GROUP_NAME }
@@ -542,7 +546,9 @@ class AlarmRepository(
                     groupIdMap[oldId] = ensureDefaultGroup()
                     continue
                 }
-                val local = groupsByName[name] ?: run {
+                val local = (if (name == RomancecarAlarmImporter.GROUP) {
+                    groupsByName[RomancecarAlarmImporter.SHORT_GROUP]
+                } else null) ?: groupsByName[name] ?: run {
                     val id = groupDao.insert(
                         AlarmGroup(
                             name = name,
@@ -553,6 +559,7 @@ class AlarmRepository(
                     insertedGroups += 1
                     groupDao.getById(id)!!.also { groupsByName[name] = it }
                 }
+                groupsByName[name] = local
                 groupIdMap[oldId] = local.id
             }
 
@@ -599,7 +606,7 @@ class AlarmRepository(
         imported.pendingScheduleIds.forEach { setAlarmEnabledLocked(it, true) }
         rescheduleAll("github-backup-restore")
         imported.insertedGroups to imported.insertedAlarms
-    }
+    }.also { mergeRomancecar831Groups() }
 
     private suspend fun enableGroupsForEnabledAlarms() {
         val groups = groupDao.getAll().associateBy { it.id }
