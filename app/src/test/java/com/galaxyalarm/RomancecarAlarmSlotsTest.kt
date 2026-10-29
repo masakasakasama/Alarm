@@ -42,6 +42,59 @@ class RomancecarAlarmSlotsTest {
         hour = 13, minute = 17, enabled = false, soundMode = SoundMode.VIBRATE_ONLY,
     )
 
+    @Test fun merge831GroupsKeepsAlarmsAndScheduledSnoozes() = runBlocking {
+        val target = db.groupDao().insert(AlarmGroup(name = RomancecarAlarmImporter.SHORT_GROUP, enabled = false))
+        val source = db.groupDao().insert(AlarmGroup(name = RomancecarAlarmImporter.GROUP, enabled = true))
+        val unrelated = db.groupDao().insert(AlarmGroup(name = "ロマ 8:11発", enabled = true))
+        val manual = db.alarmDao().insert(AlarmItem(groupId = target, hour = 7, minute = 15, enabled = false))
+        val moved = db.alarmDao().insert(AlarmItem(groupId = source, hour = 20, minute = 39, enabled = true,
+            soundMode = SoundMode.VIBRATE_ONLY))
+        val other = db.alarmDao().insert(AlarmItem(groupId = unrelated, hour = 8, minute = 11))
+        val original = db.alarmDao().getById(moved)!!
+        val regular = db.occurrenceDao().insertScheduled(moved, source, 123L, 0)
+        val snooze = db.occurrenceDao().insertScheduled(moved, source, 456L, 1)
+
+        repo.mergeRomancecar831Groups()
+        repo.mergeRomancecar831Groups()
+
+        assertEquals(original.copy(groupId = target), db.alarmDao().getById(moved))
+        assertEquals(target, db.alarmDao().getById(manual)!!.groupId)
+        assertEquals(unrelated, db.alarmDao().getById(other)!!.groupId)
+        assertTrue(db.groupDao().getById(target)!!.enabled)
+        assertNull(db.groupDao().getById(source))
+        assertNotNull(db.groupDao().getById(unrelated))
+        assertEquals(regular.copy(groupId = target), db.occurrenceDao().getById(regular.id))
+        assertEquals(snooze.copy(groupId = target), db.occurrenceDao().getById(snooze.id))
+    }
+
+    @Test fun syncReusesExistingShort831Group() = runBlocking {
+        val context = RuntimeEnvironment.getApplication()
+        val target = db.groupDao().insert(AlarmGroup(name = RomancecarAlarmImporter.SHORT_GROUP))
+        val at = System.currentTimeMillis() + 30 * 60_000L
+        assertTrue(RomancecarAlarmImporter.sync(context, repo, listOf(Event(at, "新宿|E831", true))))
+        assertEquals(target, repo.getAlarms().single().groupId)
+        assertEquals(listOf(target), repo.getVisibleGroups().map { it.id })
+    }
+
+    @Test fun restoreOldBackupDoesNotRecreateLong831Group() = runBlocking {
+        val backup = """{
+            "groups": [
+                {"localId": 1, "name": "ロマンスカー 8:31発"},
+                {"localId": 2, "name": "ロマ 8:31発"}
+            ],
+            "alarms": [
+                {"groupLocalId": 1, "groupName": "ロマンスカー 8:31発", "hour": 20, "minute": 39, "enabled": false},
+                {"groupLocalId": 2, "groupName": "ロマ 8:31発", "hour": 7, "minute": 15, "enabled": false}
+            ]
+        }"""
+        repo.mergeBackupJson(backup)
+        repo.mergeBackupJson(backup)
+        val target = repo.getVisibleGroups().single()
+        assertEquals(RomancecarAlarmImporter.SHORT_GROUP, target.name)
+        assertEquals(2, repo.getAlarms().size)
+        assertTrue(repo.getAlarms().all { it.groupId == target.id && !it.enabled })
+    }
+
     @Test fun upgradeMergesDifferentDatesAndPhasesAtSameTimeAndClearsLabel() = runBlocking {
         val group = db.groupDao().insert(AlarmGroup(name = RomancecarAlarmImporter.PREVIOUS_GROUP))
         val first = db.alarmDao().insert(legacy(group, "2026/10/23"))
