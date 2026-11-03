@@ -368,8 +368,10 @@ class RomancecarAlarmSlotsTest {
             hour = time.get(java.util.Calendar.HOUR_OF_DAY), minute = time.get(java.util.Calendar.MINUTE),
             label = "自分のメモ", soundMode = SoundMode.VIBRATE_ONLY))
         assertTrue(manual.scheduled)
+        db.groupDao().setEnabled(group, false, System.currentTimeMillis())
         assertTrue(RomancecarAlarmImporter.sync(context, repo, listOf(Event(at, "新宿|E123", true))))
         assertEquals(1, repo.getAlarms().size)
+        assertTrue(db.groupDao().getById(group)!!.enabled)
         assertTrue(RomancecarAlarmImporter.sync(context, repo, emptyList()))
         assertTrue(repo.getAlarm(manual.alarmId)!!.enabled)
         assertEquals("自分のメモ", repo.getAlarm(manual.alarmId)!!.label)

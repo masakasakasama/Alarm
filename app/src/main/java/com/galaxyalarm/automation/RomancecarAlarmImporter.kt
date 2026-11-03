@@ -151,6 +151,7 @@ object RomancecarAlarmImporter {
                 continue
             }
             if (current?.groupId == groupId && current.enabled && current.vibrationEnabled) {
+                if (!repository.ensureGroupEnabledForActiveAlarm(current.id)) return false
                 activeIds += current.id
                 continue
             }

@@ -51,6 +51,14 @@ class AlarmRepository(
     suspend fun getGroup(id: Long) = groupDao.getById(id)
     suspend fun getAllScheduled() = occurrenceDao.getAllScheduled()
     suspend fun enabledCountInGroup(groupId: Long) = alarmDao.enabledCountInGroup(groupId)
+
+    /** An active automatic slot must not remain inside a disabled group. */
+    suspend fun ensureGroupEnabledForActiveAlarm(alarmId: Long): Boolean = saveMutex.withLock {
+        val alarm = alarmDao.getById(alarmId) ?: return@withLock false
+        if (!alarm.enabled || groupDao.getById(alarm.groupId) == null) return@withLock false
+        enableGroupForAlarm(alarm.groupId)
+        true
+    }
     suspend fun alarmCount() = alarmDao.count()
     suspend fun groupCount() = getVisibleGroups().size
     suspend fun latestLog() = logDao.latest()
