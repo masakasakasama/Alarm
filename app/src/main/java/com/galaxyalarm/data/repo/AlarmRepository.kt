@@ -51,6 +51,14 @@ class AlarmRepository(
     suspend fun getGroup(id: Long) = groupDao.getById(id)
     suspend fun getAllScheduled() = occurrenceDao.getAllScheduled()
     suspend fun enabledCountInGroup(groupId: Long) = alarmDao.enabledCountInGroup(groupId)
+
+    /** An active automatic slot must not remain inside a disabled group. */
+    suspend fun ensureGroupEnabledForActiveAlarm(alarmId: Long): Boolean = saveMutex.withLock {
+        val alarm = alarmDao.getById(alarmId) ?: return@withLock false
+        if (!alarm.enabled || groupDao.getById(alarm.groupId) == null) return@withLock false
+        enableGroupForAlarm(alarm.groupId)
+        true
+    }
     suspend fun alarmCount() = alarmDao.count()
     suspend fun groupCount() = getVisibleGroups().size
     suspend fun latestLog() = logDao.latest()
@@ -371,6 +379,24 @@ class AlarmRepository(
             }
         }
         duplicates.size
+    }
+
+    /** Merge the duplicate 8:31 groups without replacing OS reservations or snoozes. */
+    suspend fun moveAlarmToGroup(alarmId: Long, targetId: Long): Boolean = saveMutex.withLock {
+        scheduler.withSchedulingLock {
+            database.withTransaction {
+                val alarm = alarmDao.getById(alarmId) ?: return@withTransaction false
+                val target = groupDao.getById(targetId) ?: return@withTransaction false
+                val source = groupDao.getById(alarm.groupId) ?: return@withTransaction false
+                if (alarm.groupId == targetId) return@withTransaction true
+                if ((alarm.enabled || source.enabled) && !target.enabled) {
+                    groupDao.setEnabled(targetId, true, System.currentTimeMillis())
+                }
+                alarmDao.update(alarm.copy(groupId = targetId))
+                occurrenceDao.moveAlarmToGroup(alarmId, targetId)
+                true
+            }
+        }
     }
 
     /** Merge the duplicate 8:31 groups without replacing OS reservations or snoozes. */
