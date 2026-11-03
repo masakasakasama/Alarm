@@ -177,6 +177,16 @@ object RomancecarAlarmImporter {
                 return false
             }
         }
+        // An arrival can still be upcoming after its departure alert has fired.
+        // Keep the known departure route so its old slot can also leave the wrong group.
+        for (departureMs in upcoming.mapNotNull(::trainDeparture).distinct().filter { it <= now }) {
+            val trainTime = departureTime(departureMs)
+            val group = groups.filter { groupDeparture(it.name) == trainTime }
+                .sortedBy { if (it.name.startsWith("ロマ ")) 0 else 1 }.firstOrNull() ?: continue
+            val clock = Calendar.getInstance().apply { timeInMillis = departureMs - 180_000L }
+                .let { it.get(Calendar.HOUR_OF_DAY) to it.get(Calendar.MINUTE) }
+            activeSlotGroups.getOrPut(clock) { mutableSetOf() }.add(group.id)
+        }
         for (id in managed - activeIds) {
             val alarm = repository.getAlarm(id) ?: continue
             if (alarm.groupId !in automationGroupIds || !RomancecarAlarmSlots.isSilentOneTime(alarm)) continue
