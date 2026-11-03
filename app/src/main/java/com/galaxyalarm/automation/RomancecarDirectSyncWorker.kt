@@ -52,21 +52,9 @@ class RomancecarDirectSyncWorker(
             val events = mutableListOf<RomancecarAlarmImporter.Event>()
             for (index in 0 until bookings.length()) {
                 val booking = bookings.getJSONObject(index)
-                val arrival = booking.getLong("arrival_ms")
-                val station = booking.getString("station")
-                if (station.isBlank() || station.length > 100) continue
-                if (arrival <= now || arrival > now + 45L * 24L * 60L * 60_000L) continue
-                events += RomancecarAlarmImporter.Event(arrival, station)
-                // Old feeds remain compatible: arrival still works until GAS is updated.
-                if (booking.has("departure_ms")) {
-                    val departure = booking.getLong("departure_ms")
-                    val departureStation = booking.getString("departure_station")
-                    if (departure <= 0L || departure >= arrival ||
-                        departureStation.isBlank() || departureStation.length > 100) {
-                        throw IllegalStateException("Invalid departure metadata")
-                    }
-                    events += RomancecarAlarmImporter.Event(departure, departureStation, departure = true)
-                }
+                val bookingEvents = romancecarEventsFromBooking(booking, now)
+                if (bookingEvents.isEmpty()) continue
+                events += bookingEvents
                 successCount++
             }
             if (!RomancecarAlarmImporter.sync(app, events)) {
@@ -179,6 +167,24 @@ class RomancecarDirectSyncWorker(
             WorkManager.getInstance(context).cancelUniqueWork(ONCE)
         }
     }
+}
+
+/** Retain each booking's departure on both alerts so its arrival is routed to the same train. */
+internal fun romancecarEventsFromBooking(booking: JSONObject, now: Long): List<RomancecarAlarmImporter.Event> {
+    val arrival = booking.getLong("arrival_ms")
+    val station = booking.getString("station")
+    if (station.isBlank() || station.length > 100 ||
+        arrival <= now || arrival > now + 45L * 24L * 60L * 60_000L) return emptyList()
+    if (!booking.has("departure_ms")) return listOf(RomancecarAlarmImporter.Event(arrival, station))
+    val departure = booking.getLong("departure_ms")
+    val departureStation = booking.getString("departure_station")
+    if (departure <= 0L || departure >= arrival || departureStation.isBlank() || departureStation.length > 100) {
+        throw IllegalStateException("Invalid departure metadata")
+    }
+    return listOf(
+        RomancecarAlarmImporter.Event(arrival, station, trainDepartureMs = departure),
+        RomancecarAlarmImporter.Event(departure, departureStation, departure = true, trainDepartureMs = departure),
+    )
 }
 
 object RomancecarDirectSyncSettings {

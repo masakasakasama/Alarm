@@ -60,6 +60,8 @@ interface AlarmItemDao {
 
 @Dao
 interface ScheduledOccurrenceDao {
+    @Query("UPDATE scheduled_occurrences SET groupId = :targetId WHERE alarmId = :alarmId")
+    suspend fun moveAlarmToGroup(alarmId: Long, targetId: Long)
     @Query("UPDATE scheduled_occurrences SET groupId = :targetId WHERE groupId = :sourceId")
     suspend fun moveGroup(sourceId: Long, targetId: Long)
     @Insert(onConflict = OnConflictStrategy.ABORT)
