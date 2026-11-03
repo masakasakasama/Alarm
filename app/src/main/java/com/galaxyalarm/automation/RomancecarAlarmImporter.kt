@@ -140,7 +140,13 @@ object RomancecarAlarmImporter {
                 }.sortedWith(compareByDescending<AlarmItem> { it.enabled }.thenBy { it.id }).firstOrNull()
             // Keep an already scheduled alarm during its final minute and while it is ringing.
             if (trips.none { RomancecarAutomation.alarmTimestamp(it.atMs, now) != null }) {
-                if (trips.any { it.atMs - 180_000L <= now + 60_000L }) current?.let { activeIds += it.id }
+                if (trips.any { it.atMs - 180_000L <= now + 60_000L }) {
+                    alarms.filter {
+                        it.enabled && it.hour == slot.first && it.minute == slot.second &&
+                            (it.groupId == groupId || it.id in managed && it.groupId in automationGroupIds) &&
+                            RomancecarAlarmSlots.isSilentOneTime(it)
+                    }.forEach { activeIds += it.id }
+                }
                 continue
             }
             activeSlotGroups.getOrPut(slot) { mutableSetOf() }.add(groupId)
