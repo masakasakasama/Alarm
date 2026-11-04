@@ -163,6 +163,24 @@ class RomancecarAlarmSlotsTest {
         }
     }
 
+    @Test fun existingEveningRowsMoveOnceWithoutChangingTheirStateOrReservations() = runBlocking {
+        val context = RuntimeEnvironment.getApplication()
+        val morning = db.groupDao().insert(AlarmGroup(name = "ロマ 8:31発"))
+        val silent = db.groupDao().insert(AlarmGroup(name = "音無し"))
+        val ids = listOf(19 to 40, 20 to 23, 20 to 39, 21 to 23).mapIndexed { index, (hour, minute) ->
+            db.alarmDao().insert(AlarmItem(groupId = morning, hour = hour, minute = minute,
+                enabled = index >= 2, soundMode = SoundMode.VIBRATE_ONLY))
+        }
+        val states = ids.associateWith { db.alarmDao().getById(it)!! }
+        val reservation = db.occurrenceDao().insertScheduled(ids.last(), morning, 123L, 0)
+        assertTrue(RomancecarAlarmImporter.sync(context, repo, emptyList()))
+        ids.forEach { assertEquals(states[it]!!.copy(groupId = silent), db.alarmDao().getById(it)) }
+        assertEquals(reservation.copy(groupId = silent), db.occurrenceDao().getById(reservation.id))
+        assertTrue(db.alarmDao().getByGroup(morning).isEmpty())
+        assertTrue(RomancecarAlarmImporter.sync(context, repo, emptyList()))
+        assertEquals(4, db.alarmDao().getByGroup(silent).size)
+    }
+
     @Test fun expiredDepartureSlotStillMovesWhileSameTrainsArrivalIsUpcoming() = runBlocking {
         val context = RuntimeEnvironment.getApplication()
         val now = System.currentTimeMillis()

@@ -22,6 +22,7 @@ object RomancecarAlarmImporter {
     const val LEGACY_GROUP = "ロマンスカー（自動）"
     private const val PREFS = "romancecar_alarm_slots"
     private const val MANAGED = "managed_ids"
+    private const val EVENING_MIGRATED = "move_existing_evening_slots_v228"
     private val importMutex = Mutex()
 
     data class Event(
@@ -87,10 +88,25 @@ object RomancecarAlarmImporter {
         }.getOrDefault(emptyList())
     }
 
-    suspend fun migrate(app: AlarmApplication) = importMutex.withLock { migrateLocked(app.container.repository) }
+    suspend fun migrate(app: AlarmApplication) = importMutex.withLock { migrateLocked(app, app.container.repository) }
 
-    private suspend fun migrateLocked(repository: AlarmRepository) {
+    private suspend fun migrateLocked(context: Context, repository: AlarmRepository) {
         repository.mergeRomancecar831Groups()
+        val prefs = context.getSharedPreferences(PREFS, 0)
+        if (prefs.getBoolean(EVENING_MIGRATED, false)) return
+        val groups = repository.getGroups()
+        val morningIds = groups.filter { it.name == SHORT_GROUP || it.name == GROUP }.mapTo(mutableSetOf()) { it.id }
+        // These previously misplaced evening slots were explicitly requested to move.
+        val eveningSlots = setOf(19 to 40, 20 to 23, 20 to 39, 21 to 23)
+        val misplaced = repository.getAlarms().filter {
+            it.groupId in morningIds && (it.hour to it.minute) in eveningSlots &&
+                RomancecarAlarmSlots.isSilentOneTime(it)
+        }
+        if (misplaced.isNotEmpty()) {
+            val target = groups.firstOrNull { it.name == PREVIOUS_GROUP }?.id ?: repository.addGroup(PREVIOUS_GROUP)
+            for (alarm in misplaced) check(repository.moveAlarmToGroup(alarm.id, target))
+        }
+        check(prefs.edit().putBoolean(EVENING_MIGRATED, true).commit())
     }
 
     private suspend fun reconcile(
@@ -98,7 +114,7 @@ object RomancecarAlarmImporter {
         now: Long = System.currentTimeMillis(),
     ): Boolean {
         if (events.size > 120 || events.any { it.station.isBlank() || it.station.length > 100 }) return false
-        migrateLocked(repository)
+        migrateLocked(app, repository)
         val prefs = app.getSharedPreferences(PREFS, 0)
         val other = readEvents(app, if (source == "direct") "bridge" else "direct")
         val upcoming = (events + other).filter { it.atMs > now && it.atMs <= now + 45L * 24 * 60 * 60_000 }
