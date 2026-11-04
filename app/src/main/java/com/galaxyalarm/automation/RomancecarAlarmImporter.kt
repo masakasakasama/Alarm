@@ -44,6 +44,9 @@ object RomancecarAlarmImporter {
         return (hour to minute).takeIf { hour in 0..23 && minute in 0..59 }
     }
 
+    private fun isMorningGroup(departure: Pair<Int, Int>?): Boolean =
+        departure == (8 to 11) || departure == (8 to 31)
+
     suspend fun sync(app: AlarmApplication, events: List<Event>): Boolean {
         val ok = sync(app, app.container.repository, events)
         if (ok) NextAlarmWidgetProvider.refresh(app)
@@ -125,10 +128,12 @@ object RomancecarAlarmImporter {
         for ((routeAndSlot, trips) in slots) {
             val (departure, slot) = routeAndSlot
             val existing = if (departure == null) groups.firstOrNull { it.name == LEGACY_GROUP }
+                else if (!isMorningGroup(departure)) groups.firstOrNull { it.name == PREVIOUS_GROUP }
                 else groups.filter { groupDeparture(it.name) == departure }
                     .sortedBy { if (it.name.startsWith("ロマ ")) 0 else 1 }.firstOrNull()
             val groupId = existing?.id ?: repository.addGroup(
-                departure?.let { "ロマ ${it.first}:${it.second.toString().padStart(2, '0')}発" } ?: LEGACY_GROUP
+                if (departure == null) LEGACY_GROUP else if (!isMorningGroup(departure)) PREVIOUS_GROUP
+                else "ロマ ${departure.first}:${departure.second.toString().padStart(2, '0')}発"
             ).also { id -> repository.getGroup(id)?.let { groups.add(it) }; automationGroupIds.add(id) }
             val alarms = repository.getAlarms()
             val current = RomancecarAlarmSlots.select(alarms, groupId, slot.first, slot.second)
@@ -188,8 +193,10 @@ object RomancecarAlarmImporter {
         // Keep the known departure route so its old slot can also leave the wrong group.
         for (departureMs in upcoming.mapNotNull(::trainDeparture).distinct().filter { it <= now }) {
             val trainTime = departureTime(departureMs)
-            val group = groups.filter { groupDeparture(it.name) == trainTime }
-                .sortedBy { if (it.name.startsWith("ロマ ")) 0 else 1 }.firstOrNull() ?: continue
+            val group = if (isMorningGroup(trainTime)) groups.filter { groupDeparture(it.name) == trainTime }
+                .sortedBy { if (it.name.startsWith("ロマ ")) 0 else 1 }.firstOrNull()
+                else groups.firstOrNull { it.name == PREVIOUS_GROUP }
+            if (group == null) continue
             val clock = Calendar.getInstance().apply { timeInMillis = departureMs - 180_000L }
                 .let { it.get(Calendar.HOUR_OF_DAY) to it.get(Calendar.MINUTE) }
             activeSlotGroups.getOrPut(clock) { mutableSetOf() }.add(group.id)
