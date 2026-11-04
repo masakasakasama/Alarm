@@ -127,6 +127,9 @@ class RomancecarAlarmSlotsTest {
     }
 
     @Test fun eveningTrainUsesSilentGroupAndMovesManagedReservations() = runBlocking {
+        val originalZone = java.util.TimeZone.getDefault()
+        java.util.TimeZone.setDefault(java.util.TimeZone.getTimeZone("Asia/Tokyo"))
+        try {
         val context = RuntimeEnvironment.getApplication()
         val now = java.util.Calendar.getInstance(java.util.TimeZone.getTimeZone("Asia/Tokyo")).apply {
             set(java.util.Calendar.HOUR_OF_DAY, 19); set(java.util.Calendar.MINUTE, 30)
@@ -150,9 +153,13 @@ class RomancecarAlarmSlotsTest {
             Event(arrival, "到着駅|ETEST", trainDepartureMs = departure)
         ), now))
         assertEquals(old.toSet(), db.alarmDao().getByGroup(target).map { it.id }.toSet())
+        assertEquals(setOf(20 to 39, 21 to 23), db.alarmDao().getByGroup(target).map { it.hour to it.minute }.toSet())
         assertTrue(db.alarmDao().getByGroup(wrong).isEmpty())
         reservations.forEach { (id, value) ->
             assertEquals(value.copy(groupId = target), db.occurrenceDao().getById(id))
+        }
+        } finally {
+            java.util.TimeZone.setDefault(originalZone)
         }
     }
 
