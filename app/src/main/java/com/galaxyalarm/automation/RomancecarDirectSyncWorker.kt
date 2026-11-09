@@ -26,6 +26,12 @@ import kotlinx.coroutines.sync.withLock
 import org.json.JSONObject
 import org.json.JSONArray
 
+/** Keep fetch and application together so an older response cannot win a race. */
+internal object FeedSyncGate {
+    private val mutex = Mutex()
+    suspend fun <T> serialize(block: suspend () -> T): T = mutex.withLock { block() }
+}
+
 /**
  * Pulls a minimal list of future EMot trips from a user-owned Apps Script web app.
  * Gmail access remains on Google's side; no Gmail credentials are stored on Android.
@@ -36,10 +42,10 @@ class RomancecarDirectSyncWorker(
     params: WorkerParameters,
 ) : CoroutineWorker(context, params) {
 
-    override suspend fun doWork(): Result = syncMutex.withLock {
+    override suspend fun doWork(): Result = FeedSyncGate.serialize {
         val context = applicationContext
         val url = RomancecarDirectSyncSettings.readUrl(context)
-        if (!RomancecarDirectSyncSettings.validUrl(url)) return@withLock Result.success()
+        if (!RomancecarDirectSyncSettings.validUrl(url)) return@serialize Result.success()
         val now = System.currentTimeMillis()
         try {
             val response = withContext(Dispatchers.IO) {
@@ -132,7 +138,6 @@ class RomancecarDirectSyncWorker(
         private const val PERIODIC = "romancecar_direct_sync_periodic"
         private const val ONCE = "romancecar_direct_sync_once"
         private const val FOLLOW_UP = "romancecar_direct_sync_follow_up"
-        private val syncMutex = Mutex()
 
         fun schedule(context: Context) {
             val manager = WorkManager.getInstance(context)
