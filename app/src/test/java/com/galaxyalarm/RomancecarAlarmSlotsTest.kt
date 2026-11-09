@@ -167,6 +167,23 @@ class RomancecarAlarmSlotsTest {
         assertEquals(beforeReservations, repo.getAllScheduled())
     }
 
+    @Test fun combinedFeedAccepts120BookingsAndRejectsOversizedResponse() {
+        val now = System.currentTimeMillis()
+        val at = (now / 60_000L) * 60_000L + 120 * 60_000L
+        val hotel = org.json.JSONObject().put("departure_ms", at).put("arrival_ms", at)
+            .put("departure_station", "HOTEL EXAMPLE").put("station", "無料キャンセル期限")
+        val bookings = org.json.JSONArray()
+        repeat(120) { bookings.put(hotel) }
+        val (events, count) = romancecarEventsFromFeed(bookings, now)
+        assertEquals(120, count)
+        assertEquals(120, events.size)
+        bookings.put(hotel)
+        try {
+            romancecarEventsFromFeed(bookings, now)
+            fail("oversized feeds must fail rather than be truncated")
+        } catch (_: IllegalStateException) { }
+    }
+
     @Test fun routesEachTrainAndMovesPreviouslyMisplacedManagedAlarms() = runBlocking {
         val originalZone = java.util.TimeZone.getDefault()
         java.util.TimeZone.setDefault(java.util.TimeZone.getTimeZone("Asia/Tokyo"))

@@ -155,13 +155,13 @@ class RomancecarDirectSyncWorker(
             )
         }
 
-        /** Coalesce a burst without losing changes that arrived during the first fetch. */
+        /** A second check catches notifications that arrived while the first fetch ran. */
         fun syncAfterNotificationBurst(context: Context) {
             if (!RomancecarDirectSyncSettings.validUrl(RomancecarDirectSyncSettings.readUrl(context))) return
             val network = Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build()
             val request = OneTimeWorkRequestBuilder<RomancecarDirectSyncWorker>()
                 .setInitialDelay(30, TimeUnit.SECONDS).setConstraints(network).build()
-            WorkManager.getInstance(context).enqueueUniqueWork(FOLLOW_UP, ExistingWorkPolicy.REPLACE, request)
+            WorkManager.getInstance(context).enqueueUniqueWork(FOLLOW_UP, ExistingWorkPolicy.KEEP, request)
         }
 
         fun disable(context: Context) {

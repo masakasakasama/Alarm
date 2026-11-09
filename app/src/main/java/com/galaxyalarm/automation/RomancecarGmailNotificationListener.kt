@@ -38,9 +38,8 @@ class RomancecarGmailNotificationListener : NotificationListenerService() {
 
         try {
             RomancecarDirectSyncWorker.syncAfterNotificationBurst(context)
-            if (RomancecarDirectSyncSettings.claimNotificationSync(context)) {
-                RomancecarDirectSyncWorker.syncNow(context, expedited = true)
-            }
+            RomancecarDirectSyncWorker.syncNow(context,
+                expedited = RomancecarDirectSyncSettings.claimNotificationSync(context))
         } catch (e: Exception) {
             // No email text or notification metadata is logged.
             Log.w(TAG, "Could not request Gmail-triggered sync", e)
