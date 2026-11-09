@@ -19,6 +19,7 @@ import java.net.HttpURLConnection
 import java.net.URL
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -56,6 +57,8 @@ class RomancecarDirectSyncWorker(
             }
             RomancecarDirectSyncSettings.recordSuccess(context, successCount)
             Result.success()
+        } catch (error: CancellationException) {
+            throw error
         } catch (error: Exception) {
             Log.w(TAG, "Direct Romancecar sync failed", error)
             RomancecarDirectSyncSettings.recordFailure(context, error.javaClass.simpleName)
