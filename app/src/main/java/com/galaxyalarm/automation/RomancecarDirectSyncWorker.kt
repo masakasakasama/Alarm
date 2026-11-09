@@ -21,6 +21,7 @@ import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
+import org.json.JSONArray
 
 /**
  * Pulls a minimal list of future EMot trips from a user-owned Apps Script web app.
@@ -46,17 +47,8 @@ class RomancecarDirectSyncWorker(
                 throw IllegalStateException("GAS authentication or response failed")
             }
             val bookings = body.optJSONArray("bookings") ?: throw IllegalStateException("bookings missing")
-            if (bookings.length() > 60) throw IllegalStateException("Unexpected booking count")
             val app = context as AlarmApplication
-            var successCount = 0
-            val events = mutableListOf<RomancecarAlarmImporter.Event>()
-            for (index in 0 until bookings.length()) {
-                val booking = bookings.getJSONObject(index)
-                val bookingEvents = romancecarEventsFromBooking(booking, now)
-                if (bookingEvents.isEmpty()) continue
-                events += bookingEvents
-                successCount++
-            }
+            val (events, successCount) = romancecarEventsFromFeed(bookings, now)
             if (!RomancecarAlarmImporter.sync(app, events)) {
                 throw IllegalStateException("OS alarm scheduling failed")
             }
@@ -134,6 +126,7 @@ class RomancecarDirectSyncWorker(
         private const val TAG = "RomancecarDirectSync"
         private const val PERIODIC = "romancecar_direct_sync_periodic"
         private const val ONCE = "romancecar_direct_sync_once"
+        private const val FOLLOW_UP = "romancecar_direct_sync_follow_up"
 
         fun schedule(context: Context) {
             val manager = WorkManager.getInstance(context)
@@ -158,26 +151,53 @@ class RomancecarDirectSyncWorker(
                 builder.setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
             }
             WorkManager.getInstance(context).enqueueUniqueWork(
-                ONCE, ExistingWorkPolicy.REPLACE, builder.build()
+                ONCE, ExistingWorkPolicy.KEEP, builder.build()
             )
+        }
+
+        /** Coalesce a burst without losing changes that arrived during the first fetch. */
+        fun syncAfterNotificationBurst(context: Context) {
+            if (!RomancecarDirectSyncSettings.validUrl(RomancecarDirectSyncSettings.readUrl(context))) return
+            val network = Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build()
+            val request = OneTimeWorkRequestBuilder<RomancecarDirectSyncWorker>()
+                .setInitialDelay(30, TimeUnit.SECONDS).setConstraints(network).build()
+            WorkManager.getInstance(context).enqueueUniqueWork(FOLLOW_UP, ExistingWorkPolicy.REPLACE, request)
         }
 
         fun disable(context: Context) {
             WorkManager.getInstance(context).cancelUniqueWork(PERIODIC)
             WorkManager.getInstance(context).cancelUniqueWork(ONCE)
+            WorkManager.getInstance(context).cancelUniqueWork(FOLLOW_UP)
         }
     }
+}
+
+/** Parse and validate the whole feed before any alarms are modified. */
+internal fun romancecarEventsFromFeed(bookings: JSONArray, now: Long): Pair<List<RomancecarAlarmImporter.Event>, Int> {
+    if (bookings.length() > 120) throw IllegalStateException("Unexpected booking count")
+    val events = mutableListOf<RomancecarAlarmImporter.Event>()
+    var count = 0
+    for (index in 0 until bookings.length()) {
+        val bookingEvents = romancecarEventsFromBooking(bookings.getJSONObject(index), now)
+        if (bookingEvents.isNotEmpty()) { events += bookingEvents; count++ }
+    }
+    return events to count
 }
 
 /** Retain each booking's departure on both alerts so its arrival is routed to the same train. */
 internal fun romancecarEventsFromBooking(booking: JSONObject, now: Long): List<RomancecarAlarmImporter.Event> {
     val arrival = booking.getLong("arrival_ms")
     val station = booking.getString("station")
-    if (station.isBlank() || station.length > 100 ||
-        arrival <= now || arrival > now + 45L * 24L * 60L * 60_000L) return emptyList()
+    if (arrival <= 0L) throw IllegalStateException("Invalid arrival")
+    if (station.isBlank() || station.length > 100) throw IllegalStateException("Invalid station")
+    if (arrival <= now || arrival > now + 45L * 24L * 60L * 60_000L) return emptyList()
     if (!booking.has("departure_ms")) return listOf(RomancecarAlarmImporter.Event(arrival, station))
     val departure = booking.getLong("departure_ms")
     val departureStation = booking.getString("departure_station")
+    if (departure == arrival && RomancecarAutomation.station(station) == "無料キャンセル期限" &&
+        departureStation.isNotBlank() && departureStation.length <= 100) {
+        return listOf(RomancecarAlarmImporter.Event(arrival, station, hotelDeadline = true))
+    }
     if (departure <= 0L || departure >= arrival || departureStation.isBlank() || departureStation.length > 100) {
         throw IllegalStateException("Invalid departure metadata")
     }
