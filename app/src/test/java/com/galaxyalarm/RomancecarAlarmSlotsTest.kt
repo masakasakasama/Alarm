@@ -87,6 +87,7 @@ class RomancecarAlarmSlotsTest {
             assertTrue(db.alarmDao().getById(hotelAlarm.id)!!.enabled)
             assertTrue(RomancecarAlarmImporter.sync(context, repo, trainEvents, now))
             assertFalse(db.alarmDao().getById(hotelAlarm.id)!!.enabled)
+            assertTrue(repo.getAllScheduled().none { it.alarmId == hotelAlarm.id })
             assertTrue(trainIds.all { db.alarmDao().getById(it)!!.enabled })
         } finally {
             java.util.TimeZone.setDefault(originalZone)
