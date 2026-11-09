@@ -20,6 +20,8 @@ import java.net.URL
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import org.json.JSONObject
 import org.json.JSONArray
 
@@ -33,12 +35,12 @@ class RomancecarDirectSyncWorker(
     params: WorkerParameters,
 ) : CoroutineWorker(context, params) {
 
-    override suspend fun doWork(): Result {
+    override suspend fun doWork(): Result = syncMutex.withLock {
         val context = applicationContext
         val url = RomancecarDirectSyncSettings.readUrl(context)
-        if (!RomancecarDirectSyncSettings.validUrl(url)) return Result.success()
+        if (!RomancecarDirectSyncSettings.validUrl(url)) return@withLock Result.success()
         val now = System.currentTimeMillis()
-        return try {
+        try {
             val response = withContext(Dispatchers.IO) {
                 readBookings(url, RomancecarAutomation.token(context))
             }
@@ -127,6 +129,7 @@ class RomancecarDirectSyncWorker(
         private const val PERIODIC = "romancecar_direct_sync_periodic"
         private const val ONCE = "romancecar_direct_sync_once"
         private const val FOLLOW_UP = "romancecar_direct_sync_follow_up"
+        private val syncMutex = Mutex()
 
         fun schedule(context: Context) {
             val manager = WorkManager.getInstance(context)
