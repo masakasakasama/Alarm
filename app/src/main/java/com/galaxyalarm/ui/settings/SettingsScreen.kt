@@ -199,7 +199,7 @@ fun SettingsScreen(vm: MainViewModel, onOpenLog: () -> Unit, onOpenReliability: 
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("ロマンスカー乗降アラーム", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
                 Text(
-                    "Gmailのスマホ通知を検知してすぐ同期し、乗車3分前と降車3分前に「音無し」グループへ音なし・振動ありで登録します。通知が届かない場合に備え、15分ごとの定期同期も残します。",
+                    "Gmail通知をきっかけに同期し、予約の3分前に音なし・振動ありで登録します。通知が届かない場合も、15分間隔を目安に確認します。省電力中などは同期が遅れる場合があります。",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

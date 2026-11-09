@@ -5,6 +5,7 @@ import com.galaxyalarm.automation.RomancecarAlarmImporter
 import com.galaxyalarm.automation.RomancecarAlarmImporter.Event
 import com.galaxyalarm.automation.RomancecarAlarmSlots
 import com.galaxyalarm.automation.romancecarEventsFromBooking
+import com.galaxyalarm.automation.romancecarEventsFromFeed
 import com.galaxyalarm.data.db.AppDatabase
 import com.galaxyalarm.data.entity.AlarmGroup
 import com.galaxyalarm.data.entity.AlarmItem
@@ -48,6 +49,140 @@ class RomancecarAlarmSlotsTest {
         val hour = time.get(java.util.Calendar.HOUR_OF_DAY)
         val minute = time.get(java.util.Calendar.MINUTE)
         return if (hour == 8 && (minute == 11 || minute == 31)) "ロマ 8:${minute}発" else RomancecarAlarmImporter.PREVIOUS_GROUP
+    }
+
+    @Test fun hotelDeadlineUsesOneSilentSlotAndFeedRemovalPreservesTrain() = runBlocking {
+        val context = RuntimeEnvironment.getApplication()
+        val originalZone = java.util.TimeZone.getDefault()
+        java.util.TimeZone.setDefault(java.util.TimeZone.getTimeZone("Asia/Tokyo"))
+        try {
+            val now = System.currentTimeMillis()
+            val deadline = (now / 60_000L) * 60_000L + 150 * 60_000L
+            val departure = deadline + 60 * 60_000L
+            val arrival = departure + 60 * 60_000L
+            val hotel = org.json.JSONObject().put("departure_ms", deadline).put("arrival_ms", deadline)
+                .put("departure_station", "HOTEL EXAMPLE").put("station", "無料キャンセル期限")
+            val train = org.json.JSONObject().put("departure_ms", departure).put("arrival_ms", arrival)
+                .put("departure_station", "出発駅|E123").put("station", "到着駅|E123")
+            val hotelEvents = romancecarEventsFromBooking(hotel, now)
+            val trainEvents = romancecarEventsFromBooking(train, now)
+            assertEquals(1, hotelEvents.size)
+            assertTrue(hotelEvents.single().hotelDeadline)
+            val events = hotelEvents + hotelEvents + trainEvents
+            assertTrue(RomancecarAlarmImporter.sync(context, repo, events, now))
+            assertTrue(RomancecarAlarmImporter.sync(context, repo, events, now))
+            val silentGroup = repo.getVisibleGroups().single { it.name == "音無し" }
+            val expectedTime = java.util.Calendar.getInstance().apply { timeInMillis = deadline - 180_000L }
+            val hotelAlarm = db.alarmDao().getByGroup(silentGroup.id).single {
+                it.hour == expectedTime.get(java.util.Calendar.HOUR_OF_DAY) &&
+                    it.minute == expectedTime.get(java.util.Calendar.MINUTE)
+            }
+            assertEquals(SoundMode.VIBRATE_ONLY, hotelAlarm.soundMode)
+            assertTrue(hotelAlarm.vibrationEnabled)
+            assertTrue(hotelAlarm.enabled)
+            assertEquals(deadline - 180_000L, repo.getAllScheduled().single { it.alarmId == hotelAlarm.id }.triggerAtMillis)
+            val trainIds = repo.getAlarms().filter { it.id != hotelAlarm.id }.map { it.id }
+            assertEquals(2, trainIds.size)
+            assertTrue(RomancecarAlarmImporter.sync(context, repo, hotelEvents + trainEvents, now))
+            assertTrue(db.alarmDao().getById(hotelAlarm.id)!!.enabled)
+            assertTrue(RomancecarAlarmImporter.sync(context, repo, trainEvents, now))
+            assertFalse(db.alarmDao().getById(hotelAlarm.id)!!.enabled)
+            assertTrue(repo.getAllScheduled().none { it.alarmId == hotelAlarm.id })
+            assertTrue(trainIds.all { db.alarmDao().getById(it)!!.enabled })
+        } finally {
+            java.util.TimeZone.setDefault(originalZone)
+        }
+    }
+
+    @Test fun hotelAt2333ProducesOneEventForThe2330Reminder() {
+        val deadline = java.time.Instant.parse("2026-11-09T14:33:00Z").toEpochMilli()
+        val now = java.time.Instant.parse("2026-11-09T12:05:00Z").toEpochMilli()
+        val booking = org.json.JSONObject().put("departure_ms", deadline).put("arrival_ms", deadline)
+            .put("departure_station", "HOTEL EXAMPLE").put("station", "無料キャンセル期限")
+        val event = romancecarEventsFromBooking(booking, now).single()
+        assertTrue(event.hotelDeadline)
+        assertEquals(java.time.Instant.parse("2026-11-09T14:30:00Z").toEpochMilli(), event.atMs - 180_000L)
+    }
+
+    @Test fun cancelledHotelCancelsItsOwnPendingSnooze() = runBlocking {
+        val context = RuntimeEnvironment.getApplication()
+        val now = System.currentTimeMillis()
+        val deadline = (now / 60_000L) * 60_000L + 120 * 60_000L
+        val booking = org.json.JSONObject().put("departure_ms", deadline).put("arrival_ms", deadline)
+            .put("departure_station", "HOTEL EXAMPLE").put("station", "無料キャンセル期限")
+        val events = romancecarEventsFromBooking(booking, now)
+        assertTrue(RomancecarAlarmImporter.sync(context, repo, events, now))
+        val alarm = repo.getAlarms().single()
+        val snooze = db.occurrenceDao().insertScheduled(alarm.id, alarm.groupId, deadline + 60_000L, 1)
+        assertTrue(RomancecarAlarmImporter.sync(context, repo, emptyList(), now))
+        assertFalse(repo.getAlarm(alarm.id)!!.enabled)
+        assertEquals(com.galaxyalarm.data.model.OccurrenceStatus.CANCELED, db.occurrenceDao().getById(snooze.id)!!.status)
+    }
+
+    @Test fun cancellingHotelNeverCancelsSharedTrainSnooze() = runBlocking {
+        val context = RuntimeEnvironment.getApplication()
+        val now = System.currentTimeMillis()
+        val deadline = (now / 60_000L) * 60_000L + 120 * 60_000L
+        var departure = deadline - 30 * 60_000L
+        while (groupName(departure) != RomancecarAlarmImporter.PREVIOUS_GROUP) departure -= 60_000L
+        val hotel = Event(deadline, "無料キャンセル期限", hotelDeadline = true)
+        val train = Event(deadline, "到着駅|E123", trainDepartureMs = departure)
+        assertTrue(RomancecarAlarmImporter.sync(context, repo, listOf(hotel, train), now))
+        val alarm = repo.getAlarms().single()
+        val snooze = db.occurrenceDao().insertScheduled(alarm.id, alarm.groupId, deadline + 60_000L, 1)
+        assertTrue(RomancecarAlarmImporter.sync(context, repo, listOf(train), now))
+        assertEquals(com.galaxyalarm.data.model.OccurrenceStatus.SCHEDULED, db.occurrenceDao().getById(snooze.id)!!.status)
+        assertTrue(RomancecarAlarmImporter.sync(context, repo, emptyList(), now))
+        assertEquals(com.galaxyalarm.data.model.OccurrenceStatus.SCHEDULED, db.occurrenceDao().getById(snooze.id)!!.status)
+    }
+
+    @Test fun equalTrainTimesAreRejectedRatherThanMisclassifiedAsHotel() {
+        val now = System.currentTimeMillis()
+        val at = now + 60 * 60_000L
+        val invalid = org.json.JSONObject().put("departure_ms", at).put("arrival_ms", at)
+            .put("departure_station", "出発駅").put("station", "到着駅")
+        try {
+            romancecarEventsFromBooking(invalid, now)
+            fail("equal train times must not be accepted")
+        } catch (_: IllegalStateException) { }
+    }
+
+    @Test fun incompleteFeedIsRejectedBeforeAnyExistingAlarmIsChanged() = runBlocking {
+        val context = RuntimeEnvironment.getApplication()
+        val now = System.currentTimeMillis()
+        val at = (now / 60_000L) * 60_000L + 120 * 60_000L
+        val valid = org.json.JSONObject().put("departure_ms", at).put("arrival_ms", at)
+            .put("departure_station", "HOTEL EXAMPLE").put("station", "無料キャンセル期限")
+        val initial = romancecarEventsFromFeed(org.json.JSONArray().put(valid), now).first
+        assertTrue(RomancecarAlarmImporter.sync(context, repo, initial, now))
+        val before = repo.getAlarms().single()
+        val beforeReservations = repo.getAllScheduled()
+        val malformed = org.json.JSONObject().put("departure_ms", at).put("arrival_ms", at)
+            .put("departure_station", "出発駅").put("station", "到着駅")
+        try {
+            val (events, _) = romancecarEventsFromFeed(org.json.JSONArray().put(valid).put(malformed), now)
+            RomancecarAlarmImporter.sync(context, repo, events, now)
+            fail("an invalid booking must reject the whole feed")
+        } catch (_: IllegalStateException) { }
+        assertEquals(before, repo.getAlarm(before.id))
+        assertEquals(beforeReservations, repo.getAllScheduled())
+    }
+
+    @Test fun combinedFeedAccepts120BookingsAndRejectsOversizedResponse() {
+        val now = System.currentTimeMillis()
+        val at = (now / 60_000L) * 60_000L + 120 * 60_000L
+        val hotel = org.json.JSONObject().put("departure_ms", at).put("arrival_ms", at)
+            .put("departure_station", "HOTEL EXAMPLE").put("station", "無料キャンセル期限")
+        val bookings = org.json.JSONArray()
+        repeat(120) { bookings.put(hotel) }
+        val (events, count) = romancecarEventsFromFeed(bookings, now)
+        assertEquals(120, count)
+        assertEquals(120, events.size)
+        bookings.put(hotel)
+        try {
+            romancecarEventsFromFeed(bookings, now)
+            fail("oversized feeds must fail rather than be truncated")
+        } catch (_: IllegalStateException) { }
     }
 
     @Test fun routesEachTrainAndMovesPreviouslyMisplacedManagedAlarms() = runBlocking {

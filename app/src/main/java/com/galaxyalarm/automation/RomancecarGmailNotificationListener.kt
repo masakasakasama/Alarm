@@ -16,15 +16,30 @@ import android.util.Log
  */
 class RomancecarGmailNotificationListener : NotificationListenerService() {
 
+    override fun onListenerConnected() {
+        super.onListenerConnected()
+        requestSync()
+    }
+
     override fun onNotificationPosted(sbn: StatusBarNotification?) {
         if (sbn?.packageName != GMAIL_PACKAGE) return
+        requestSync()
+    }
+
+    override fun onNotificationRemoved(sbn: StatusBarNotification?) {
+        if (sbn?.packageName != GMAIL_PACKAGE) return
+        requestSync()
+    }
+
+    private fun requestSync() {
         val context = applicationContext
         if (!RomancecarDirectSyncSettings.isInstantSyncEnabled(context)) return
         if (!RomancecarDirectSyncSettings.validUrl(RomancecarDirectSyncSettings.readUrl(context))) return
 
-        if (!RomancecarDirectSyncSettings.claimNotificationSync(context)) return
         try {
-            RomancecarDirectSyncWorker.syncNow(context, expedited = true)
+            RomancecarDirectSyncWorker.syncAfterNotificationBurst(context)
+            RomancecarDirectSyncWorker.syncNow(context,
+                expedited = RomancecarDirectSyncSettings.claimNotificationSync(context))
         } catch (e: Exception) {
             // No email text or notification metadata is logged.
             Log.w(TAG, "Could not request Gmail-triggered sync", e)
