@@ -44,6 +44,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -69,6 +70,19 @@ import com.galaxyalarm.ui.components.StatusPill
 private val AmColor = Color(0xFF80DEEA)   // シアン (朝)
 private val PmColor = Color(0xFFCE93D8)   // ラベンダー (午後)
 private const val GROUPS_PER_ROW = 3
+
+// グループの色分け。既存のアクセント（青/緑/黄/赤）と重ならない色を使う。
+private val HotelDepartureColor = Color(0xFFB98CFF) // ホテルから出る: 紫
+private val HomeDepartureColor = Color(0xFFFF9447)  // 家から出る（ロマ）: オレンジ
+private val AtHomeColor = Color(0xFFFF7AC6)         // 在宅: ピンク
+
+/** グループ名から色を決める。該当なし（音無しなど）は null で従来どおり。 */
+internal fun groupAccentColor(name: String): Color? = when {
+    name.startsWith("ホテル") -> HotelDepartureColor
+    name.startsWith("ロマ") -> HomeDepartureColor
+    name.contains("在宅") -> AtHomeColor
+    else -> null
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -361,10 +375,14 @@ private fun CompactGroupCard(
     onToggle: (com.galaxyalarm.data.entity.AlarmGroup, Boolean) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val accent = groupAccentColor(row.group.name)
+    val surface = MaterialTheme.colorScheme.surface
     Card(
         onClick = { onOpenGroup(row.group.id) },
         shape = RoundedCornerShape(14.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        colors = CardDefaults.cardColors(
+            containerColor = accent?.copy(alpha = 0.16f)?.compositeOver(surface) ?: surface,
+        ),
         modifier = modifier,
     ) {
         Column(
@@ -376,6 +394,7 @@ private fun CompactGroupCard(
                     row.group.name,
                     style = MaterialTheme.typography.labelLarge,
                     fontWeight = FontWeight.Bold,
+                    color = accent ?: Color.Unspecified,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f),
