@@ -176,10 +176,15 @@ object RomancecarAlarmImporter {
                 else "ロマ ${departure.first}:${departure.second.toString().padStart(2, '0')}発"
             ).also { id -> repository.getGroup(id)?.let { groups.add(it) }; automationGroupIds.add(id) }
             val alarms = repository.getAlarms()
-            val existingManual = if (hotel) null else alarms.filter {
+            val sameSlots = alarms.filter {
                 it.groupId == groupId && it.hour == slot.first && it.minute == slot.second &&
-                    it.id !in originallyManaged && RomancecarAlarmSlots.isSilentOneTime(it)
-            }.minWithOrNull(compareBy<AlarmItem> { it.createdAt }.thenBy { it.id })
+                    RomancecarAlarmSlots.isSilentOneTime(it)
+            }
+            val existingManual = if (hotel) null else {
+                val ordered = sameSlots.sortedWith(compareBy<AlarmItem> { it.createdAt }.thenBy { it.id })
+                ordered.firstOrNull { it.id !in originallyManaged }
+                    ?: ordered.firstOrNull().takeIf { ordered.size > 1 && ordered.all { it.id in originallyManaged } }
+            }
             val current = existingManual ?: RomancecarAlarmSlots.select(alarms, groupId, slot.first, slot.second)
                 ?: alarms.filter {
                     routesPerSlot[slot] == 1 && it.id !in activeIds &&

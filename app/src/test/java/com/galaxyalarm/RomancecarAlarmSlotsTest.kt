@@ -88,6 +88,26 @@ class RomancecarAlarmSlotsTest {
         assertEquals(snooze, db.occurrenceDao().getById(snooze.id))
     }
 
+    @Test fun olderExistingRowIsReusedWhenBothWerePreviouslyManaged() = runBlocking {
+        val context = RuntimeEnvironment.getApplication()
+        val now = System.currentTimeMillis()
+        val at = (now / 60_000L) * 60_000L + 40 * 60_000L
+        val time = java.util.Calendar.getInstance().apply { timeInMillis = at - 180_000L }
+        val group = db.groupDao().insert(AlarmGroup(name = groupName(at)))
+        val item = AlarmItem(groupId = group, hour = time.get(java.util.Calendar.HOUR_OF_DAY),
+            minute = time.get(java.util.Calendar.MINUTE), enabled = false, soundMode = SoundMode.VIBRATE_ONLY)
+        val original = db.alarmDao().insert(item.copy(createdAt = 100L))
+        val copy = db.alarmDao().insert(item.copy(createdAt = 200L))
+        assertTrue(repo.setAlarmEnabled(copy, true))
+        context.getSharedPreferences("romancecar_alarm_slots", 0).edit()
+            .putStringSet("managed_ids", setOf(original.toString(), copy.toString())).commit()
+        assertEquals(0, repo.consolidateExactDuplicates(setOf(original, copy)))
+        assertTrue(RomancecarAlarmImporter.sync(context, repo, listOf(Event(at, "出発駅|E831", true)), now))
+        assertEquals(listOf(original), db.alarmDao().getByGroup(group).map { it.id })
+        assertTrue(db.alarmDao().getById(original)!!.enabled)
+        assertTrue(repo.getAllScheduled().none { it.alarmId == copy })
+    }
+
     private fun groupName(at: Long): String {
         val time = java.util.Calendar.getInstance(java.util.TimeZone.getTimeZone("Asia/Tokyo")).apply { timeInMillis = at }
         val hour = time.get(java.util.Calendar.HOUR_OF_DAY)

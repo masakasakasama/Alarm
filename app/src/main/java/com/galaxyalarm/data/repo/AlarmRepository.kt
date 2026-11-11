@@ -364,9 +364,8 @@ class AlarmRepository(
         val duplicates = alarmDao.getAll()
             .groupBy(::key)
             .values
-            // Let the importer reuse the user's row before removing an imported copy.
-            .filter { matches -> matches.size > 1 &&
-                !(matches.any { it.id in automationIds } && matches.any { it.id !in automationIds }) }
+            // Let the importer choose the original row before removing imported copies.
+            .filter { matches -> matches.size > 1 && matches.none { it.id in automationIds } }
             .flatMap { matches ->
                 val keeper = matches.sortedWith(
                     compareByDescending<AlarmItem> { it.enabled }.thenBy { it.id }
