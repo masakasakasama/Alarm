@@ -480,6 +480,9 @@ class AlarmRepository(
     suspend fun activateExistingSilentSlot(alarmId: Long): Boolean = saveMutex.withLock {
         val old = alarmDao.getById(alarmId) ?: return@withLock false
         if (!RomancecarAlarmSlots.isSilentOneTime(old)) return@withLock false
+        val pending = occurrenceDao.getScheduledForAlarm(old.id)
+        if (pending.any { it.snoozeCount > 0 || it.triggerAtMillis <= System.currentTimeMillis() + 90_000L } ||
+            com.galaxyalarm.ring.ActiveAlarms.stack.value.any { it.alarmId == old.id }) return@withLock false
         val candidate = old.withSafeSoundMode().copy(enabled = true, updatedAt = System.currentTimeMillis())
         candidate.validateForSave()?.let { return@withLock false }
         enableGroupForAlarm(candidate.groupId)
