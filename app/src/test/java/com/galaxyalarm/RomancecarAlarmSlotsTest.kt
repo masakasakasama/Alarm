@@ -108,6 +108,27 @@ class RomancecarAlarmSlotsTest {
         assertTrue(repo.getAllScheduled().none { it.alarmId == copy })
     }
 
+    @Test fun finishedImportedDuplicatesAreCleanedWithoutNetworkAndSnoozesRemain() = runBlocking {
+        val context = RuntimeEnvironment.getApplication()
+        val group = db.groupDao().insert(AlarmGroup(name = "ロマ 8:31発"))
+        val manualIds = mutableListOf<Long>()
+        val importedIds = mutableListOf<Long>()
+        for ((hour, minute) in listOf(8 to 28, 9 to 20)) {
+            val item = AlarmItem(groupId = group, hour = hour, minute = minute,
+                enabled = false, soundMode = SoundMode.VIBRATE_ONLY)
+            manualIds += db.alarmDao().insert(item.copy(createdAt = 100L))
+            importedIds += db.alarmDao().insert(item.copy(createdAt = 200L))
+        }
+        val snooze = db.occurrenceDao().insertScheduled(importedIds[1], group, System.currentTimeMillis() + 300_000L, 1)
+        context.getSharedPreferences("romancecar_alarm_slots", 0).edit()
+            .putStringSet("managed_ids", importedIds.map { it.toString() }.toSet()).commit()
+        assertTrue(RomancecarAlarmImporter.sync(context, repo, emptyList()))
+        assertNull(db.alarmDao().getById(importedIds[0]))
+        assertNotNull(db.alarmDao().getById(importedIds[1]))
+        assertTrue(manualIds.all { db.alarmDao().getById(it) != null })
+        assertEquals(snooze, db.occurrenceDao().getById(snooze.id))
+    }
+
     private fun groupName(at: Long): String {
         val time = java.util.Calendar.getInstance(java.util.TimeZone.getTimeZone("Asia/Tokyo")).apply { timeInMillis = at }
         val hour = time.get(java.util.Calendar.HOUR_OF_DAY)

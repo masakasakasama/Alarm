@@ -100,6 +100,15 @@ object RomancecarAlarmImporter {
     private suspend fun migrateLocked(context: Context, repository: AlarmRepository) {
         repository.mergeRomancecar831Groups()
         val prefs = context.getSharedPreferences(PREFS, 0)
+        val managed = managedAlarmIds(context)
+        val protected = (prefs.getStringSet(HOTEL_MANAGED, emptySet()).orEmpty() +
+            prefs.getStringSet(HOTEL_TRAIN_SHARED, emptySet()).orEmpty()).mapNotNull { it.toLongOrNull() }.toSet()
+        val morningGroups = repository.getGroups().filter { isMorningGroup(groupDeparture(it.name)) }
+            .mapTo(mutableSetOf()) { it.id }
+        val removed = repository.pruneInactiveImportedDuplicates(morningGroups, managed, protected)
+        if (removed.isNotEmpty()) {
+            check(prefs.edit().putStringSet(MANAGED, (managed - removed).mapTo(mutableSetOf()) { it.toString() }).commit())
+        }
         if (prefs.getBoolean(EVENING_MIGRATED, false)) return
         val groups = repository.getGroups()
         val morningIds = groups.filter { it.name == SHORT_GROUP || it.name == GROUP }.mapTo(mutableSetOf()) { it.id }

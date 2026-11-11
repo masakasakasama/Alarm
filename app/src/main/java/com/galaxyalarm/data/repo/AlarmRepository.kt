@@ -517,6 +517,33 @@ class AlarmRepository(
         true
     }
 
+    /** Clean up only inactive imported copies; never cancel a pending reservation here. */
+    suspend fun pruneInactiveImportedDuplicates(groupIds: Set<Long>, managedIds: Set<Long>,
+        protectedIds: Set<Long>): Set<Long> = saveMutex.withLock {
+        scheduler.withSchedulingLock {
+            database.withTransaction {
+                val removed = mutableSetOf<Long>()
+                val candidates = alarmDao.getAll().filter {
+                    it.groupId in groupIds && RomancecarAlarmSlots.isSilentOneTime(it)
+                }.groupBy { Triple(it.groupId, it.hour, it.minute) }
+                for (matches in candidates.values.filter { it.size > 1 }) {
+                    val ordered = matches.sortedWith(compareBy<AlarmItem> { it.createdAt }.thenBy { it.id })
+                    val keeper = ordered.firstOrNull { it.id !in managedIds } ?: ordered.first()
+                    for (duplicate in ordered) {
+                        if (duplicate.id == keeper.id || duplicate.id !in managedIds ||
+                            duplicate.id in protectedIds || duplicate.enabled || keeper.enabled ||
+                            duplicate.label.isNotBlank() ||
+                            com.galaxyalarm.ring.ActiveAlarms.stack.value.any { it.alarmId == duplicate.id } ||
+                            occurrenceDao.getScheduledForAlarm(duplicate.id).isNotEmpty()) continue
+                        alarmDao.delete(duplicate)
+                        removed += duplicate.id
+                    }
+                }
+                removed
+            }
+        }
+    }
+
     private suspend fun setAlarmEnabledLocked(alarmId: Long, enabled: Boolean): Boolean {
         val alarm = alarmDao.getById(alarmId) ?: return false
         val now = System.currentTimeMillis()
