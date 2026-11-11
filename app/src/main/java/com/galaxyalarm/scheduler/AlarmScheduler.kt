@@ -113,11 +113,13 @@ class AlarmScheduler(
     }
 
     /** Replace every existing occurrence for an edited alarm as one serialized operation. */
-    suspend fun replaceAlarm(alarm: AlarmItem): Boolean = mutex.withLock {
+    suspend fun replaceAlarm(alarm: AlarmItem): Boolean = mutex.withLock { replaceAlarmUnderLock(alarm) }
+
+    internal suspend fun replaceAlarmUnderLock(alarm: AlarmItem): Boolean {
         val old = occurrenceDao.getScheduledForAlarm(alarm.id)
         val scheduled = scheduleAlarmLocked(alarm)
         if (scheduled) old.forEach { cancelOccurrenceLocked(it) }
-        scheduled
+        return scheduled
     }
 
     /** Keep the regular next occurrence and replace only an existing snooze retry. */
@@ -215,10 +217,10 @@ class AlarmScheduler(
     }
 
     /** アラーム単位の予約をキャンセル。 */
-    suspend fun cancelAlarm(alarmId: Long) {
-        mutex.withLock {
-            occurrenceDao.getScheduledForAlarm(alarmId).forEach { cancelOccurrenceLocked(it) }
-        }
+    suspend fun cancelAlarm(alarmId: Long) = mutex.withLock { cancelAlarmUnderLock(alarmId) }
+
+    internal suspend fun cancelAlarmUnderLock(alarmId: Long) {
+        occurrenceDao.getScheduledForAlarm(alarmId).forEach { cancelOccurrenceLocked(it) }
     }
 
     /** グループ単位の予約をキャンセル。 */

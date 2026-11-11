@@ -222,12 +222,17 @@ object RomancecarAlarmImporter {
             }
             if (current?.groupId == groupId && current.enabled && current.vibrationEnabled) {
                 if (!repository.ensureGroupEnabledForActiveAlarm(current.id)) return false
+                if (existingManual != null && repository.getAllScheduled().none {
+                        it.alarmId == current.id && it.snoozeCount == 0 &&
+                            it.triggerAtMillis > System.currentTimeMillis() && repository.hasSystemReservation(it)
+                    } && !repository.activateExistingSilentSlot(current.id)) return false
                 activeIds += current.id
                 if (!trackHotel(current.id, hotel)) return false
                 if (existingManual != null) {
-                    for (duplicate in alarms.filter { it.id in originallyManaged && it.id !in activeIds &&
-                        it.id !in hotelManaged && it.id !in hotelTrainShared }) {
+                    for (duplicate in sameSlots.filter { it.id in originallyManaged && it.id !in activeIds &&
+                        it.id !in hotelManaged && it.id !in hotelTrainShared && it.label.isBlank() }) {
                         if (repository.retireImportedDuplicate(duplicate.id, current.id)) managed.remove(duplicate.id)
+                        else activeIds += duplicate.id
                     }
                 }
                 continue
@@ -255,9 +260,10 @@ object RomancecarAlarmImporter {
             }
             activeIds += id
             if (existingManual != null) {
-                for (duplicate in alarms.filter { it.id in originallyManaged && it.id !in activeIds &&
-                    it.id !in hotelManaged && it.id !in hotelTrainShared }) {
+                for (duplicate in sameSlots.filter { it.id in originallyManaged && it.id !in activeIds &&
+                    it.id !in hotelManaged && it.id !in hotelTrainShared && it.label.isBlank() }) {
                     if (repository.retireImportedDuplicate(duplicate.id, id)) managed.remove(duplicate.id)
+                    else activeIds += duplicate.id
                 }
             }
             // An alarm that was already manually enabled is never claimed or disabled by this sync.

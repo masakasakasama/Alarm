@@ -68,6 +68,43 @@ class RomancecarAlarmSlotsTest {
         assertEquals(listOf(manual), db.alarmDao().getByGroup(group).map { it.id })
     }
 
+    @Test fun imminentImportedReservationRemainsWhenRetirementIsDeferred() = runBlocking {
+        val context = RuntimeEnvironment.getApplication()
+        val floor = (System.currentTimeMillis() / 60_000L) * 60_000L
+        val at = floor + 4 * 60_000L
+        val time = java.util.Calendar.getInstance().apply { timeInMillis = at - 180_000L }
+        val group = db.groupDao().insert(AlarmGroup(name = groupName(at)))
+        val item = AlarmItem(groupId = group, hour = time.get(java.util.Calendar.HOUR_OF_DAY),
+            minute = time.get(java.util.Calendar.MINUTE), enabled = false, soundMode = SoundMode.VIBRATE_ONLY)
+        val manual = db.alarmDao().insert(item)
+        val imported = db.alarmDao().insert(item.copy(id = 0))
+        assertTrue(repo.setAlarmEnabled(imported, true))
+        context.getSharedPreferences("romancecar_alarm_slots", 0).edit()
+            .putStringSet("managed_ids", setOf(imported.toString())).commit()
+        assertTrue(RomancecarAlarmImporter.sync(context, repo, listOf(Event(at, "出発駅|E831", true)), floor - 10_000L))
+        assertTrue(db.alarmDao().getById(manual)!!.enabled)
+        assertTrue(db.alarmDao().getById(imported)!!.enabled)
+        assertTrue(repo.getAllScheduled().any { it.alarmId == imported && repo.hasSystemReservation(it) })
+    }
+
+    @Test fun enabledExistingSlotWithoutReservationIsScheduledBeforeRetiringCopy() = runBlocking {
+        val context = RuntimeEnvironment.getApplication()
+        val now = System.currentTimeMillis()
+        val at = (now / 60_000L) * 60_000L + 40 * 60_000L
+        val time = java.util.Calendar.getInstance().apply { timeInMillis = at - 180_000L }
+        val group = db.groupDao().insert(AlarmGroup(name = groupName(at)))
+        val item = AlarmItem(groupId = group, hour = time.get(java.util.Calendar.HOUR_OF_DAY),
+            minute = time.get(java.util.Calendar.MINUTE), enabled = false, soundMode = SoundMode.VIBRATE_ONLY)
+        val manual = db.alarmDao().insert(item.copy(enabled = true))
+        val imported = db.alarmDao().insert(item)
+        assertTrue(repo.setAlarmEnabled(imported, true))
+        context.getSharedPreferences("romancecar_alarm_slots", 0).edit()
+            .putStringSet("managed_ids", setOf(imported.toString())).commit()
+        assertTrue(RomancecarAlarmImporter.sync(context, repo, listOf(Event(at, "出発駅|E831", true)), now))
+        assertTrue(repo.getAllScheduled().any { it.alarmId == manual && repo.hasSystemReservation(it) })
+        assertNull(db.alarmDao().getById(imported))
+    }
+
     @Test fun duplicateWithPendingSnoozeIsNotDeleted() = runBlocking {
         val context = RuntimeEnvironment.getApplication()
         val now = System.currentTimeMillis()
