@@ -139,6 +139,8 @@ class RomancecarAlarmSlotsTest {
             manualIds += db.alarmDao().insert(item.copy(createdAt = 100L))
             importedIds += db.alarmDao().insert(item.copy(createdAt = 200L))
         }
+        assertTrue(repo.setAlarmEnabled(manualIds[0], true))
+        val manualReservation = repo.getAllScheduled().single { it.alarmId == manualIds[0] }
         val snooze = db.occurrenceDao().insertScheduled(importedIds[1], group, System.currentTimeMillis() + 300_000L, 1)
         context.getSharedPreferences("romancecar_alarm_slots", 0).edit()
             .putStringSet("managed_ids", importedIds.map { it.toString() }.toSet()).commit()
@@ -146,6 +148,7 @@ class RomancecarAlarmSlotsTest {
         assertNull(db.alarmDao().getById(importedIds[0]))
         assertNotNull(db.alarmDao().getById(importedIds[1]))
         assertTrue(manualIds.all { db.alarmDao().getById(it) != null })
+        assertEquals(manualReservation, db.occurrenceDao().getById(manualReservation.id))
         assertEquals(snooze, db.occurrenceDao().getById(snooze.id))
     }
 

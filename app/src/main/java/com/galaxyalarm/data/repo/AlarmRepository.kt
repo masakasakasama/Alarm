@@ -534,7 +534,7 @@ class AlarmRepository(
                     val keeper = ordered.firstOrNull { it.id !in managedIds } ?: ordered.first()
                     for (duplicate in ordered) {
                         if (duplicate.id == keeper.id || duplicate.id !in managedIds ||
-                            duplicate.id in protectedIds || duplicate.enabled || keeper.enabled ||
+                            duplicate.id in protectedIds || duplicate.enabled ||
                             duplicate.label.isNotBlank() ||
                             com.galaxyalarm.ring.ActiveAlarms.stack.value.any { it.alarmId == duplicate.id } ||
                             occurrenceDao.getScheduledForAlarm(duplicate.id).isNotEmpty()) continue
