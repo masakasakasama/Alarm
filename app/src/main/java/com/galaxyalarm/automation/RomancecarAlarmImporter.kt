@@ -27,6 +27,9 @@ object RomancecarAlarmImporter {
     private const val EVENING_MIGRATED = "move_existing_evening_slots_v228"
     private val importMutex = Mutex()
 
+    fun managedAlarmIds(context: Context): Set<Long> = context.getSharedPreferences(PREFS, 0)
+        .getStringSet(MANAGED, emptySet()).orEmpty().mapNotNull { it.toLongOrNull() }.toSet()
+
     data class Event(
         val atMs: Long,
         val station: String,
@@ -97,6 +100,15 @@ object RomancecarAlarmImporter {
     private suspend fun migrateLocked(context: Context, repository: AlarmRepository) {
         repository.mergeRomancecar831Groups()
         val prefs = context.getSharedPreferences(PREFS, 0)
+        val managed = managedAlarmIds(context)
+        val protected = (prefs.getStringSet(HOTEL_MANAGED, emptySet()).orEmpty() +
+            prefs.getStringSet(HOTEL_TRAIN_SHARED, emptySet()).orEmpty()).mapNotNull { it.toLongOrNull() }.toSet()
+        val morningGroups = repository.getGroups().filter { isMorningGroup(groupDeparture(it.name)) }
+            .mapTo(mutableSetOf()) { it.id }
+        val removed = repository.pruneInactiveImportedDuplicates(morningGroups, managed, protected)
+        if (removed.isNotEmpty()) {
+            check(prefs.edit().putStringSet(MANAGED, (managed - removed).mapTo(mutableSetOf()) { it.toString() }).commit())
+        }
         if (prefs.getBoolean(EVENING_MIGRATED, false)) return
         val groups = repository.getGroups()
         val morningIds = groups.filter { it.name == SHORT_GROUP || it.name == GROUP }.mapTo(mutableSetOf()) { it.id }
@@ -128,6 +140,7 @@ object RomancecarAlarmImporter {
         }.mapTo(mutableSetOf()) { it.id }
         val managed = prefs.getStringSet(MANAGED, emptySet()).orEmpty()
             .mapNotNull { it.toLongOrNull() }.toMutableSet()
+        val originallyManaged = managed.toSet()
         val hotelManaged = prefs.getStringSet(HOTEL_MANAGED, emptySet()).orEmpty()
             .mapNotNull { it.toLongOrNull() }.toMutableSet()
         val hotelTrainShared = prefs.getStringSet(HOTEL_TRAIN_SHARED, emptySet()).orEmpty()
@@ -172,7 +185,16 @@ object RomancecarAlarmImporter {
                 else "ロマ ${departure.first}:${departure.second.toString().padStart(2, '0')}発"
             ).also { id -> repository.getGroup(id)?.let { groups.add(it) }; automationGroupIds.add(id) }
             val alarms = repository.getAlarms()
-            val current = RomancecarAlarmSlots.select(alarms, groupId, slot.first, slot.second)
+            val sameSlots = alarms.filter {
+                it.groupId == groupId && it.hour == slot.first && it.minute == slot.second &&
+                    RomancecarAlarmSlots.isSilentOneTime(it)
+            }
+            val existingManual = if (hotel) null else {
+                val ordered = sameSlots.sortedWith(compareBy<AlarmItem> { it.createdAt }.thenBy { it.id })
+                ordered.firstOrNull { it.id !in originallyManaged }
+                    ?: ordered.firstOrNull().takeIf { ordered.size > 1 && ordered.all { it.id in originallyManaged } }
+            }
+            val current = existingManual ?: RomancecarAlarmSlots.select(alarms, groupId, slot.first, slot.second)
                 ?: alarms.filter {
                     routesPerSlot[slot] == 1 && it.id !in activeIds &&
                         it.id in managed && it.groupId in automationGroupIds &&
@@ -200,8 +222,19 @@ object RomancecarAlarmImporter {
             }
             if (current?.groupId == groupId && current.enabled && current.vibrationEnabled) {
                 if (!repository.ensureGroupEnabledForActiveAlarm(current.id)) return false
+                if (existingManual != null && repository.getAllScheduled().none {
+                        it.alarmId == current.id && it.snoozeCount == 0 &&
+                            it.triggerAtMillis > System.currentTimeMillis() && repository.hasSystemReservation(it)
+                    } && !repository.activateExistingSilentSlot(current.id)) return false
                 activeIds += current.id
                 if (!trackHotel(current.id, hotel)) return false
+                if (existingManual != null) {
+                    for (duplicate in sameSlots.filter { it.id in originallyManaged && it.id !in activeIds &&
+                        it.id !in hotelManaged && it.id !in hotelTrainShared && it.label.isBlank() }) {
+                        if (repository.retireImportedDuplicate(duplicate.id, current.id)) managed.remove(duplicate.id)
+                        else activeIds += duplicate.id
+                    }
+                }
                 continue
             }
             val alarm = current?.copy(
@@ -216,11 +249,23 @@ object RomancecarAlarmImporter {
                     vibrationEnabled = true, vibrationPattern = VibrationPattern.LONG,
                     snoozeEnabled = false, maxSnoozeCount = 0, autoStopMinutes = 2,
                 )
-            val result = repository.saveAlarmChecked(alarm)
-            val id = if (result.scheduled) result.alarmId else result.duplicateOf?.takeIf {
-                repository.setAlarmEnabled(it, true)
-            } ?: return false
+            val id = if (existingManual != null) {
+                if (!repository.activateExistingSilentSlot(existingManual.id)) return false
+                existingManual.id
+            } else {
+                val result = repository.saveAlarmChecked(alarm)
+                if (result.scheduled) result.alarmId else result.duplicateOf?.takeIf {
+                    repository.setAlarmEnabled(it, true)
+                } ?: return false
+            }
             activeIds += id
+            if (existingManual != null) {
+                for (duplicate in sameSlots.filter { it.id in originallyManaged && it.id !in activeIds &&
+                    it.id !in hotelManaged && it.id !in hotelTrainShared && it.label.isBlank() }) {
+                    if (repository.retireImportedDuplicate(duplicate.id, id)) managed.remove(duplicate.id)
+                    else activeIds += duplicate.id
+                }
+            }
             // An alarm that was already manually enabled is never claimed or disabled by this sync.
             val newlyManaged = current?.enabled != true && id !in managed
             if (current?.enabled != true) managed += id

@@ -94,7 +94,9 @@ class AlarmApplication : Application() {
                 }
                 current.repository.ensureDefaultGroup()
                 runCatching { com.galaxyalarm.automation.RomancecarAlarmImporter.migrate(this@AlarmApplication) }
-                current.repository.consolidateExactDuplicates()
+                current.repository.consolidateExactDuplicates(
+                    com.galaxyalarm.automation.RomancecarAlarmImporter.managedAlarmIds(this@AlarmApplication)
+                )
             }
 
             val fingerprint = Build.FINGERPRINT ?: ""
