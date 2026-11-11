@@ -22,8 +22,8 @@ android {
         applicationId = "com.galaxyalarm"
         minSdk = 26
         targetSdk = 36
-        versionCode = 85
-        versionName = "2.2.30"
+        versionCode = 86
+        versionName = "2.2.31"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }
     }

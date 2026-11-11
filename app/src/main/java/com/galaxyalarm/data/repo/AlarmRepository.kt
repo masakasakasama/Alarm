@@ -354,7 +354,7 @@ class AlarmRepository(
      * Removes definitions that are identical apart from their current ON/OFF state.
      * An enabled alarm wins so an update never silently disables a working alarm.
      */
-    suspend fun consolidateExactDuplicates(): Int = saveMutex.withLock {
+    suspend fun consolidateExactDuplicates(automationIds: Set<Long> = emptySet()): Int = saveMutex.withLock {
         val groups = groupDao.getAll()
         val ungroupedIds = groups.filter { isDefaultGroupName(it.name) }.mapTo(mutableSetOf()) { it.id }
         fun key(alarm: AlarmItem) = AlarmDefinitionKey.from(
@@ -364,7 +364,9 @@ class AlarmRepository(
         val duplicates = alarmDao.getAll()
             .groupBy(::key)
             .values
-            .filter { it.size > 1 }
+            // Let the importer reuse the user's row before removing an imported copy.
+            .filter { matches -> matches.size > 1 &&
+                !(matches.any { it.id in automationIds } && matches.any { it.id !in automationIds }) }
             .flatMap { matches ->
                 val keeper = matches.sortedWith(
                     compareByDescending<AlarmItem> { it.enabled }.thenBy { it.id }
@@ -473,6 +475,47 @@ class AlarmRepository(
     /** ONは予約成功後、OFFは予約取消成功後にDBへ反映する。 */
     suspend fun setAlarmEnabled(alarmId: Long, enabled: Boolean): Boolean = saveMutex.withLock {
         setAlarmEnabledLocked(alarmId, enabled)
+    }
+
+    /** Reuse a user's silent slot even if a previously imported duplicate exists. */
+    suspend fun activateExistingSilentSlot(alarmId: Long): Boolean = saveMutex.withLock {
+        val old = alarmDao.getById(alarmId) ?: return@withLock false
+        if (!RomancecarAlarmSlots.isSilentOneTime(old)) return@withLock false
+        val candidate = old.withSafeSoundMode().copy(enabled = true, updatedAt = System.currentTimeMillis())
+        candidate.validateForSave()?.let { return@withLock false }
+        enableGroupForAlarm(candidate.groupId)
+        if (!scheduler.replaceAlarm(candidate)) return@withLock false
+        try {
+            alarmDao.update(candidate)
+            true
+        } catch (error: Exception) {
+            runCatching { if (old.enabled) scheduler.replaceAlarm(old) else scheduler.cancelAlarm(old.id) }
+            throw error
+        }
+    }
+
+    /** Only retire an imported duplicate after a matching replacement is safely scheduled. */
+    suspend fun retireImportedDuplicate(duplicateId: Long, keeperId: Long): Boolean = saveMutex.withLock {
+        val old = alarmDao.getById(duplicateId) ?: return@withLock false
+        val keeper = alarmDao.getById(keeperId) ?: return@withLock false
+        if (old.id == keeper.id || old.groupId != keeper.groupId || old.hour != keeper.hour ||
+            old.minute != keeper.minute || old.label.isNotBlank() ||
+            !RomancecarAlarmSlots.isSilentOneTime(old) || !keeper.enabled ||
+            com.galaxyalarm.ring.ActiveAlarms.stack.value.any { it.alarmId == old.id }) return@withLock false
+        val oldReservations = occurrenceDao.getScheduledForAlarm(old.id)
+        if (oldReservations.any { it.snoozeCount > 0 }) return@withLock false
+        val now = System.currentTimeMillis()
+        val replacements = occurrenceDao.getScheduledForAlarm(keeper.id).filter {
+            it.snoozeCount == 0 && it.triggerAtMillis > now + 90_000L && scheduler.hasSystemReservation(it)
+        }
+        if (replacements.isEmpty()) return@withLock false
+        if (old.enabled && (oldReservations.isEmpty() || oldReservations.any { previous ->
+                previous.triggerAtMillis <= now + 90_000L || !scheduler.hasSystemReservation(previous) ||
+                    replacements.none { kotlin.math.abs(it.triggerAtMillis - previous.triggerAtMillis) < 60_000L }
+            })) return@withLock false
+        scheduler.cancelAlarm(old.id)
+        alarmDao.delete(old)
+        true
     }
 
     private suspend fun setAlarmEnabledLocked(alarmId: Long, enabled: Boolean): Boolean {

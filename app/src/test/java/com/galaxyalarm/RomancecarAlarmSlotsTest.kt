@@ -44,6 +44,50 @@ class RomancecarAlarmSlotsTest {
         hour = 13, minute = 17, enabled = false, soundMode = SoundMode.VIBRATE_ONLY,
     )
 
+    @Test fun existingManualSlotWinsOverImportedOnDuplicate() = runBlocking {
+        val context = RuntimeEnvironment.getApplication()
+        val now = System.currentTimeMillis()
+        val at = (now / 60_000L) * 60_000L + 40 * 60_000L
+        val time = java.util.Calendar.getInstance().apply { timeInMillis = at - 180_000L }
+        val group = db.groupDao().insert(AlarmGroup(name = groupName(at)))
+        val original = AlarmItem(groupId = group, hour = time.get(java.util.Calendar.HOUR_OF_DAY),
+            minute = time.get(java.util.Calendar.MINUTE), enabled = false, soundMode = SoundMode.VIBRATE_ONLY)
+        val manual = db.alarmDao().insert(original)
+        val imported = db.alarmDao().insert(original.copy(id = 0))
+        assertTrue(repo.setAlarmEnabled(imported, true))
+        context.getSharedPreferences("romancecar_alarm_slots", 0).edit()
+            .putStringSet("managed_ids", setOf(imported.toString())).commit()
+        // Startup cleanup must not delete the original before the importer reuses it.
+        assertEquals(0, repo.consolidateExactDuplicates(setOf(imported)))
+        assertTrue(RomancecarAlarmImporter.sync(context, repo, listOf(Event(at, "出発駅|E831", true)), now))
+        assertEquals(listOf(manual), db.alarmDao().getByGroup(group).map { it.id })
+        assertTrue(db.alarmDao().getById(manual)!!.enabled)
+        assertTrue(repo.getAllScheduled().any { it.alarmId == manual && repo.hasSystemReservation(it) })
+        assertTrue(repo.getAllScheduled().none { it.alarmId == imported })
+        assertTrue(RomancecarAlarmImporter.sync(context, repo, listOf(Event(at, "出発駅|E831", true)), now))
+        assertEquals(listOf(manual), db.alarmDao().getByGroup(group).map { it.id })
+    }
+
+    @Test fun duplicateWithPendingSnoozeIsNotDeleted() = runBlocking {
+        val context = RuntimeEnvironment.getApplication()
+        val now = System.currentTimeMillis()
+        val at = (now / 60_000L) * 60_000L + 40 * 60_000L
+        val time = java.util.Calendar.getInstance().apply { timeInMillis = at - 180_000L }
+        val group = db.groupDao().insert(AlarmGroup(name = groupName(at)))
+        val item = AlarmItem(groupId = group, hour = time.get(java.util.Calendar.HOUR_OF_DAY),
+            minute = time.get(java.util.Calendar.MINUTE), enabled = false, soundMode = SoundMode.VIBRATE_ONLY)
+        val manual = db.alarmDao().insert(item)
+        val imported = db.alarmDao().insert(item.copy(id = 0))
+        assertTrue(repo.setAlarmEnabled(imported, true))
+        val snooze = db.occurrenceDao().insertScheduled(imported, group, at - 120_000L, 1)
+        context.getSharedPreferences("romancecar_alarm_slots", 0).edit()
+            .putStringSet("managed_ids", setOf(imported.toString())).commit()
+        assertTrue(RomancecarAlarmImporter.sync(context, repo, listOf(Event(at, "出発駅|E831", true)), now))
+        assertNotNull(db.alarmDao().getById(imported))
+        assertTrue(db.alarmDao().getById(manual)!!.enabled)
+        assertEquals(snooze, db.occurrenceDao().getById(snooze.id))
+    }
+
     private fun groupName(at: Long): String {
         val time = java.util.Calendar.getInstance(java.util.TimeZone.getTimeZone("Asia/Tokyo")).apply { timeInMillis = at }
         val hour = time.get(java.util.Calendar.HOUR_OF_DAY)
