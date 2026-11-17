@@ -123,6 +123,23 @@ fun AlarmsScreen(
             )
         },
     ) {
+        // トップレベルでは時計やグループをアラーム一覧より先に表示する。
+        if (!showingGroup) {
+            item { NowCard() }
+            item { NextAlarmCard(vm = vm, onAddAlarm = onAddAlarm, onEditAlarm = onEditAlarm) }
+            if (groupedRows.isNotEmpty()) {
+                item {
+                    GroupStrip(
+                        rows = groupedRows,
+                        onOpenGroup = onOpenGroup,
+                        onToggle = { group, enabled -> vm.toggleGroup(group, enabled) }
+                    )
+                }
+            }
+            item { RunningTimerCard() }
+            item { WorldClockCard() }
+        }
+
         alarmHourSections(rows) { row ->
             val dismissState = rememberSwipeToDismissBoxState(
                 confirmValueChange = { value ->
@@ -160,27 +177,6 @@ fun AlarmsScreen(
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
-        }
-
-        // トップレベルの時計やグループはアラーム一覧の後に表示する。
-        if (!showingGroup) {
-            item { NowCard() }
-            item { NextAlarmCard(vm = vm, onAddAlarm = onAddAlarm, onEditAlarm = onEditAlarm) }
-            if (groupedRows.isNotEmpty()) {
-                item {
-                    GroupStrip(
-                        rows = groupedRows,
-                        onOpenGroup = onOpenGroup,
-                        onToggle = { group, enabled -> vm.toggleGroup(group, enabled) }
-                    )
-                }
-            }
-            item { RunningTimerCard() }
-        }
-
-        // 世界時計は一覧の最後に置く(旧・時計タブの内容)。
-        if (!showingGroup) {
-            item { WorldClockCard() }
         }
     }
 
