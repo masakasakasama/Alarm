@@ -18,6 +18,9 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -26,6 +29,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SwipeToDismissBox
@@ -35,6 +39,8 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -105,6 +111,17 @@ fun AlarmsScreen(
         allRows.filter { AlarmRepository.isDefaultGroupName(it.groupName) }
     }
     val groupedRows = if (showingGroup) emptyList() else groupRows.filter { it.totalCount > 0 }
+    val hours = rows.map { it.alarm.hour }.distinct().sorted()
+    // -1 selects the first available hour; -2 means all hours.
+    var requestedHour by rememberSaveable(groupId) { mutableStateOf(-1) }
+    val selectedHour = when {
+        requestedHour == -2 -> null
+        requestedHour in hours -> requestedHour
+        else -> hours.firstOrNull()
+    }
+    val visibleRows = if (selectedHour == null) rows else rows.filter { it.alarm.hour == selectedHour }
+    val listState = rememberLazyListState()
+    LaunchedEffect(groupId, selectedHour) { listState.scrollToItem(0) }
     var actionTarget by remember { mutableStateOf<AlarmRow?>(null) }
     var deleteTarget by remember { mutableStateOf<AlarmRow?>(null) }
     val allEnabled = rows.isNotEmpty() && rows.all { it.alarm.enabled }
@@ -119,26 +136,13 @@ fun AlarmsScreen(
                 onToggleAll = { vm.toggleAllAlarms(rows, it) },
                 onAddAlarm = onAddAlarm,
             )
-        },
-    ) {
-
-        // トップレベル表示のときは現在時刻+次のアラームを上部に出す(旧・時計タブの内容)。
-        if (!showingGroup) {
-            item { NowCard() }
-            item { NextAlarmCard(vm = vm, onAddAlarm = onAddAlarm, onEditAlarm = onEditAlarm) }
-            if (groupedRows.isNotEmpty()) {
-                item {
-                    GroupStrip(
-                        rows = groupedRows,
-                        onOpenGroup = onOpenGroup,
-                        onToggle = { group, enabled -> vm.toggleGroup(group, enabled) }
-                    )
-                }
+            if (hours.size > 1) {
+                AlarmHourTabs(hours, selectedHour, onSelect = { requestedHour = it ?: -2 })
             }
-            item { RunningTimerCard() }
-        }
-
-        items(rows, key = { it.alarm.id }) { row ->
+        },
+        listState = listState,
+    ) {
+        items(visibleRows, key = { it.alarm.id }) { row ->
             val dismissState = rememberSwipeToDismissBoxState(
                 confirmValueChange = { value ->
                     if (value == SwipeToDismissBoxValue.EndToStart) {
@@ -154,27 +158,17 @@ fun AlarmsScreen(
                 enableDismissFromStartToEnd = false,
                 backgroundContent = {
                     Box(
-                        Modifier
-                            .fillMaxSize()
-                            .clip(RoundedCornerShape(20.dp))
+                        Modifier.fillMaxSize().clip(RoundedCornerShape(20.dp))
                             .background(MaterialTheme.colorScheme.error),
                         contentAlignment = Alignment.CenterEnd
                     ) {
-                        Icon(
-                            Icons.Filled.Delete,
-                            contentDescription = "削除",
-                            tint = Color.White,
-                            modifier = Modifier.padding(end = 20.dp)
-                        )
+                        Icon(Icons.Filled.Delete, contentDescription = "削除", tint = Color.White,
+                            modifier = Modifier.padding(end = 20.dp))
                     }
                 }
             ) {
-                AlarmCard(
-                    row = row,
-                    onToggle = { vm.toggleAlarm(row.alarm, it) },
-                    onClick = { onEditAlarm(row.alarm.id) },
-                    onLongClick = { actionTarget = row }
-                )
+                AlarmCard(row = row, onToggle = { vm.toggleAlarm(row.alarm, it) },
+                    onClick = { onEditAlarm(row.alarm.id) }, onLongClick = { actionTarget = row })
             }
         }
 
@@ -185,6 +179,22 @@ fun AlarmsScreen(
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
+        }
+
+        // トップレベルの時計やグループはアラーム一覧の後に表示する。
+        if (!showingGroup) {
+            item { NowCard() }
+            item { NextAlarmCard(vm = vm, onAddAlarm = onAddAlarm, onEditAlarm = onEditAlarm) }
+            if (groupedRows.isNotEmpty()) {
+                item {
+                    GroupStrip(
+                        rows = groupedRows,
+                        onOpenGroup = onOpenGroup,
+                        onToggle = { group, enabled -> vm.toggleGroup(group, enabled) }
+                    )
+                }
+            }
+            item { RunningTimerCard() }
         }
 
         // 世界時計は一覧の最後に置く(旧・時計タブの内容)。
@@ -228,6 +238,7 @@ fun AlarmsScreen(
 @Composable
 fun AlarmListLayout(
     header: @Composable () -> Unit,
+    listState: LazyListState = rememberLazyListState(),
     content: LazyListScope.() -> Unit,
 ) {
     Column(Modifier.fillMaxSize()) {
@@ -238,10 +249,29 @@ fun AlarmListLayout(
                 .weight(1f)
                 .padding(horizontal = 16.dp)
                 .testTag("alarm_scroll_content"),
+            state = listState,
             verticalArrangement = Arrangement.spacedBy(10.dp),
             contentPadding = PaddingValues(top = 8.dp, bottom = 16.dp),
             content = content,
         )
+    }
+}
+
+/** Hours are visual filters only; the alarms and their groups are left untouched. */
+@Composable
+internal fun AlarmHourTabs(hours: List<Int>, selectedHour: Int?, onSelect: (Int?) -> Unit) {
+    LazyRow(
+        modifier = Modifier.fillMaxWidth().testTag("alarm_hour_tabs"),
+        contentPadding = PaddingValues(horizontal = 16.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        item {
+            FilterChip(selected = selectedHour == null, onClick = { onSelect(null) }, label = { Text("すべて") })
+        }
+        items(hours, key = { it }) { hour ->
+            FilterChip(selected = selectedHour == hour, onClick = { onSelect(hour) },
+                label = { Text("${hour}時台") })
+        }
     }
 }
 
@@ -276,6 +306,8 @@ fun AlarmListHeader(
         }
         Row(verticalAlignment = Alignment.CenterVertically) {
             if (showEnableSwitch) {
+                Text("全件", style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Switch(
                     checked = allEnabled,
                     onCheckedChange = onToggleAll,
