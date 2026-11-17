@@ -18,7 +18,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
-import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.items
@@ -29,7 +28,6 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SwipeToDismissBox
@@ -39,8 +37,6 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -111,17 +107,6 @@ fun AlarmsScreen(
         allRows.filter { AlarmRepository.isDefaultGroupName(it.groupName) }
     }
     val groupedRows = if (showingGroup) emptyList() else groupRows.filter { it.totalCount > 0 }
-    val hours = rows.map { it.alarm.hour }.distinct().sorted()
-    // -1 selects the first available hour; -2 means all hours.
-    var requestedHour by rememberSaveable(groupId) { mutableStateOf(-1) }
-    val selectedHour = when {
-        requestedHour == -2 -> null
-        requestedHour in hours -> requestedHour
-        else -> hours.firstOrNull()
-    }
-    val visibleRows = if (selectedHour == null) rows else rows.filter { it.alarm.hour == selectedHour }
-    val listState = rememberLazyListState()
-    LaunchedEffect(groupId, selectedHour) { listState.scrollToItem(0) }
     var actionTarget by remember { mutableStateOf<AlarmRow?>(null) }
     var deleteTarget by remember { mutableStateOf<AlarmRow?>(null) }
     val allEnabled = rows.isNotEmpty() && rows.all { it.alarm.enabled }
@@ -136,13 +121,9 @@ fun AlarmsScreen(
                 onToggleAll = { vm.toggleAllAlarms(rows, it) },
                 onAddAlarm = onAddAlarm,
             )
-            if (hours.size > 1) {
-                AlarmHourTabs(hours, selectedHour, onSelect = { requestedHour = it ?: -2 })
-            }
         },
-        listState = listState,
     ) {
-        items(visibleRows, key = { it.alarm.id }) { row ->
+        alarmHourSections(rows) { row ->
             val dismissState = rememberSwipeToDismissBoxState(
                 confirmValueChange = { value ->
                     if (value == SwipeToDismissBoxValue.EndToStart) {
@@ -257,21 +238,23 @@ fun AlarmListLayout(
     }
 }
 
-/** Hours are visual filters only; the alarms and their groups are left untouched. */
-@Composable
-internal fun AlarmHourTabs(hours: List<Int>, selectedHour: Int?, onSelect: (Int?) -> Unit) {
-    LazyRow(
-        modifier = Modifier.fillMaxWidth().testTag("alarm_hour_tabs"),
-        contentPadding = PaddingValues(horizontal = 16.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        item {
-            FilterChip(selected = selectedHour == null, onClick = { onSelect(null) }, label = { Text("すべて") })
+/** Display every alarm under its hour without changing its group or enabled state. */
+internal fun LazyListScope.alarmHourSections(
+    rows: List<AlarmRow>,
+    rowContent: @Composable (AlarmRow) -> Unit,
+) {
+    rows.groupBy { it.alarm.hour }.toSortedMap().forEach { (hour, hourRows) ->
+        item(key = "hour_$hour") {
+            Text(
+                text = "${hour}時台",
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(start = 4.dp, top = 12.dp, bottom = 2.dp),
+            )
         }
-        items(hours, key = { it }) { hour ->
-            FilterChip(selected = selectedHour == hour, onClick = { onSelect(hour) },
-                label = { Text("${hour}時台") })
-        }
+        items(hourRows.sortedWith(compareBy<AlarmRow> { it.alarm.minute }.thenBy { it.alarm.id }),
+            key = { it.alarm.id }) { row -> rowContent(row) }
     }
 }
 
