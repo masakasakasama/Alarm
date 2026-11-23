@@ -202,11 +202,20 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    val nextAlarmRow: StateFlow<AlarmRow?> = alarmRows
-        .map { rows -> rows.filter { it.nextTriggerAt != null }.minByOrNull { it.nextTriggerAt!! } }
+    val upcomingAlarmRows: StateFlow<List<AlarmRow>> = alarmRows
+        .map(::sortedUpcomingAlarms)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val nextAlarmRow: StateFlow<AlarmRow?> = upcomingAlarmRows
+        .map { it.firstOrNull() }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
     companion object {
         fun weekdayLabel(mask: Int) = Weekdays.label(mask)
     }
 }
+
+/** Only show verified future reservations, including pending snoozes. */
+internal fun sortedUpcomingAlarms(rows: List<AlarmRow>): List<AlarmRow> = rows
+    .filter { it.nextTriggerAt != null }
+    .sortedWith(compareBy<AlarmRow> { it.nextTriggerAt }.thenBy { it.alarm.id })
