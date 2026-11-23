@@ -52,7 +52,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     private val scheduledFlow = repo.observeScheduled()
 
     val groupRows: StateFlow<List<GroupRow>> =
-        combine(groupsFlow, alarmsFlow, scheduledFlow) { groups, alarms, scheduled ->
+        combine(groupsFlow, alarmsFlow, scheduledFlow, container.scheduler.reservationChanges) { groups, alarms, scheduled, _ ->
             val now = System.currentTimeMillis()
             val verifiedFuture = scheduled.filter { occurrence ->
                 occurrence.triggerAtMillis > now && repo.hasSystemReservation(occurrence)
@@ -68,7 +68,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val alarmRows: StateFlow<List<AlarmRow>> =
-        combine(groupsFlow, alarmsFlow, scheduledFlow) { groups, alarms, scheduled ->
+        combine(groupsFlow, alarmsFlow, scheduledFlow, container.scheduler.reservationChanges) { groups, alarms, scheduled, _ ->
             val now = System.currentTimeMillis()
             val gmap = groups.associateBy { it.id }
             val verifiedFutureByAlarm = scheduled

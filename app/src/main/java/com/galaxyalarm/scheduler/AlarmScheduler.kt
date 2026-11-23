@@ -18,6 +18,8 @@ import com.galaxyalarm.data.model.EventResult
 import com.galaxyalarm.data.model.OccurrenceStatus
 import com.galaxyalarm.receiver.AlarmReceiver
 import com.galaxyalarm.reliability.PermissionChecker
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
@@ -38,6 +40,8 @@ class AlarmScheduler(
     private val alarmManager =
         context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
     private val mutex = Mutex()
+    private val reservationRevision = MutableStateFlow(0L)
+    val reservationChanges = reservationRevision.asStateFlow()
 
     /** Keep group identity changes atomic with respect to OS reservation updates. */
     suspend fun <T> withSchedulingLock(block: suspend () -> T): T = mutex.withLock { block() }
@@ -182,6 +186,8 @@ class AlarmScheduler(
                 )
                 false
             } else {
+                // Room may have already emitted the occurrence before Android accepted it.
+                reservationRevision.value += 1
                 true
             }
         } catch (e: Exception) {
@@ -241,6 +247,7 @@ class AlarmScheduler(
             if (triggerAt != occ.triggerAtMillis) {
                 occurrenceDao.update(occ.copy(triggerAtMillis = triggerAt, updatedAt = now))
             }
+            if (backupScheduled) reservationRevision.value += 1
             backupScheduled
         } catch (error: Exception) {
             Log.e(TAG, "failed to reassert occurrence ${occ.id}", error)

@@ -17,6 +17,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.galaxyalarm.ui.theme.Danger
 import com.galaxyalarm.ui.theme.Ok
@@ -27,6 +28,7 @@ import com.galaxyalarm.ui.theme.Warn
 fun SectionCard(
     modifier: Modifier = Modifier,
     onClick: (() -> Unit)? = null,
+    contentPadding: Dp = 18.dp,
     content: @Composable () -> Unit,
 ) {
     val shape = RoundedCornerShape(20.dp)
@@ -36,13 +38,13 @@ fun SectionCard(
             modifier = modifier,
             shape = shape,
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        ) { Box(Modifier.padding(18.dp)) { content() } }
+        ) { Box(Modifier.padding(contentPadding)) { content() } }
     } else {
         Card(
             modifier = modifier,
             shape = shape,
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        ) { Box(Modifier.padding(18.dp)) { content() } }
+        ) { Box(Modifier.padding(contentPadding)) { content() } }
     }
 }
 
