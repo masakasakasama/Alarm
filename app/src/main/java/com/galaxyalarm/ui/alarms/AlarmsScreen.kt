@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -60,7 +61,7 @@ import com.galaxyalarm.ui.AlarmRow
 import com.galaxyalarm.ui.GroupRow
 import com.galaxyalarm.ui.MainViewModel
 import com.galaxyalarm.ui.TimeFormat
-import com.galaxyalarm.ui.clock.UpcomingAlarmDetail
+import com.galaxyalarm.ui.clock.UpcomingAlarmTile
 import com.galaxyalarm.ui.clock.NextAlarmCard
 import com.galaxyalarm.ui.clock.NowCard
 import com.galaxyalarm.ui.clock.RunningTimerCard
@@ -136,11 +137,19 @@ fun AlarmsScreen(
             }
             if (upcoming.size > 1) {
                 item(key = "upcoming_alarms") {
-                    Text("その後のアラーム", style = MaterialTheme.typography.labelLarge,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(start = 4.dp))
-                }
-                items(upcoming.drop(1), key = { "upcoming_${it.alarm.id}" }) { row ->
-                    UpcomingAlarmDetail(row, onEditAlarm)
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text(
+                            "その後のアラーム",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(start = 4.dp),
+                        )
+                        LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            items(upcoming.drop(1), key = { it.alarm.id }) { row ->
+                                UpcomingAlarmTile(row, onEditAlarm)
+                            }
+                        }
+                    }
                 }
             }
             if (groupedRows.isNotEmpty()) {
