@@ -39,6 +39,17 @@ class GroupOrderTest {
 
     @After fun tearDown() { db.close() }
 
+    @Test fun confirmingSilentGroupReusesExistingGroupOrCreatesItOnce() = runBlocking {
+        val alias = repo.addGroup("音なし")
+        assertEquals(alias, repo.ensureSilentGroup())
+        assertEquals(listOf(alias), repo.getVisibleGroups().map { it.id })
+
+        repo.renameGroup(requireNotNull(repo.getGroup(alias)), "別のグループ")
+        val silent = repo.ensureSilentGroup()
+        assertEquals(silent, repo.ensureSilentGroup())
+        assertEquals(listOf("別のグループ", "音無し"), repo.getVisibleGroups().map { it.name })
+    }
+
     @Test fun movesPersistWithDuplicateOrdersAndPreserveAlarmState() = runBlocking {
         val hidden = db.groupDao().insert(AlarmGroup(name = AlarmRepository.DEFAULT_GROUP_NAME, sortOrder = Int.MIN_VALUE))
         val a = db.groupDao().insert(AlarmGroup(name = "A", sortOrder = 5, enabled = false))
