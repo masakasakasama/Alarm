@@ -60,6 +60,7 @@ import com.galaxyalarm.ui.AlarmRow
 import com.galaxyalarm.ui.GroupRow
 import com.galaxyalarm.ui.MainViewModel
 import com.galaxyalarm.ui.TimeFormat
+import com.galaxyalarm.ui.clock.FollowingAlarmCard
 import com.galaxyalarm.ui.clock.NextAlarmCard
 import com.galaxyalarm.ui.clock.NowCard
 import com.galaxyalarm.ui.clock.RunningTimerCard
@@ -127,6 +128,7 @@ fun AlarmsScreen(
         if (!showingGroup) {
             item { NowCard() }
             item { NextAlarmCard(vm = vm, onAddAlarm = onAddAlarm, onEditAlarm = onEditAlarm) }
+            item { FollowingAlarmCard(vm = vm, onEditAlarm = onEditAlarm) }
             if (groupedRows.isNotEmpty()) {
                 item {
                     GroupStrip(

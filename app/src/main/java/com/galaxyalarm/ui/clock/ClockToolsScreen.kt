@@ -38,6 +38,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.galaxyalarm.data.model.SoundMode
+import com.galaxyalarm.data.model.Weekdays
 import com.galaxyalarm.timer.StopwatchController
 import com.galaxyalarm.timer.TimerController
 import com.galaxyalarm.timer.TimerEntry
@@ -121,7 +123,8 @@ fun NowCard() {
 /** 次のアラームだけのカード(現在時刻とは別に表示)。タップで該当アラーム編集。 */
 @Composable
 fun NextAlarmCard(vm: MainViewModel, onAddAlarm: () -> Unit, onEditAlarm: (Long) -> Unit = {}) {
-    val nextAlarm by vm.nextAlarmRow.collectAsStateWithLifecycle()
+    val upcoming by vm.upcomingAlarmRows.collectAsStateWithLifecycle()
+    val nextAlarm = upcoming.firstOrNull()
     val now = rememberCurrentTimeMillis()
     val onClick = if (nextAlarm != null) ({ onEditAlarm(nextAlarm!!.alarm.id) }) else null
     SectionCard(Modifier.fillMaxWidth(), onClick = onClick) {
@@ -149,6 +152,38 @@ fun NextAlarmCard(vm: MainViewModel, onAddAlarm: () -> Unit, onEditAlarm: (Long)
                 TextButton(onClick = onAddAlarm) { Text("+ 追加") }
             } else {
                 TextButton(onClick = { onEditAlarm(nextAlarm!!.alarm.id) }) { Text("編集") }
+            }
+        }
+    }
+}
+
+/** 次に鳴るアラームの後に続く、確認済みの予約をコンパクトに表示する。 */
+@Composable
+fun FollowingAlarmCard(vm: MainViewModel, onEditAlarm: (Long) -> Unit) {
+    val upcoming by vm.upcomingAlarmRows.collectAsStateWithLifecycle()
+    val following = upcoming.getOrNull(1)
+    SectionCard(Modifier.fillMaxWidth(), onClick = following?.let { row -> { onEditAlarm(row.alarm.id) } }) {
+        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text("その次のアラーム", style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (following == null) {
+                Text("予定なし", style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+            } else {
+                val alarm = following.alarm
+                val sound = if (alarm.soundMode == SoundMode.SOUND) "音あり" else "音なし"
+                val vibration = if (alarm.vibrationEnabled) "振動あり" else "振動なし"
+                Text(TimeFormat.nextTrigger(following.nextTriggerAt),
+                    style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                val description = buildList {
+                    add(following.groupName)
+                    alarm.label.trim().takeIf { it.isNotEmpty() }?.let { add(it) }
+                    add(Weekdays.label(alarm.weekdaysMask))
+                    add(sound)
+                    add(vibration)
+                }.joinToString(" · ")
+                Text(description, style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
     }
