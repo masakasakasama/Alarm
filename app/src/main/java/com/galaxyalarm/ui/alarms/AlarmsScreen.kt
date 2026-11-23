@@ -65,7 +65,6 @@ import com.galaxyalarm.ui.clock.UpcomingAlarmTile
 import com.galaxyalarm.ui.clock.NextAlarmCard
 import com.galaxyalarm.ui.clock.NowCard
 import com.galaxyalarm.ui.clock.RunningTimerCard
-import com.galaxyalarm.ui.clock.WorldClockCard
 import com.galaxyalarm.ui.components.ConfirmAlarmDeleteDialog
 import com.galaxyalarm.ui.components.PillLevel
 import com.galaxyalarm.ui.components.SectionCard
@@ -162,7 +161,6 @@ fun AlarmsScreen(
                 }
             }
             item { RunningTimerCard() }
-            item { WorldClockCard() }
         }
 
         alarmHourSections(rows) { row ->

@@ -26,6 +26,11 @@ import androidx.navigation.compose.rememberNavController
 import com.galaxyalarm.ui.alarms.AlarmsScreen
 import com.galaxyalarm.ui.clock.StopwatchScreen
 import com.galaxyalarm.ui.clock.TimerScreen
+import com.galaxyalarm.ui.clock.WorldClockCard
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.material3.TextButton
+import androidx.compose.ui.unit.dp
 import com.galaxyalarm.ui.edit.EditAlarmScreen
 import com.galaxyalarm.ui.groups.GroupsScreen
 import com.galaxyalarm.ui.log.EventLogScreen
@@ -34,7 +39,7 @@ import com.galaxyalarm.ui.settings.SettingsScreen
 
 private data class Tab(val route: String, val label: String, val icon: ImageVector)
 
-// Galaxy純正時計を参考にした下タブ。世界時計はアラームタブ内、信頼性は設定内に集約。
+// 時計と信頼性は設定画面から開く。
 private val tabs = listOf(
     Tab("alarms", "アラーム", Icons.Filled.Alarm),
     Tab("groups", "グループ", Icons.Filled.Folder),
@@ -54,6 +59,7 @@ fun AppNavigation(editAlarmRequest: Long? = null) {
         currentRoute.startsWith("edit") -> "alarms"
         currentRoute == "log" -> "settings"
         currentRoute == "reliability" -> "settings"
+        currentRoute == "world_clock" -> "settings"
         else -> currentRoute
     }
 
@@ -125,8 +131,15 @@ fun AppNavigation(editAlarmRequest: Long? = null) {
                 SettingsScreen(
                     vm = mainVm,
                     onOpenLog = { navController.navigate("log") },
-                    onOpenReliability = { navController.navigate("reliability") }
+                    onOpenReliability = { navController.navigate("reliability") },
+                    onOpenWorldClock = { navController.navigate("world_clock") }
                 )
+            }
+            composable("world_clock") {
+                Column(Modifier.fillMaxWidth().padding(16.dp)) {
+                    TextButton(onClick = { navController.popBackStack() }) { Text("戻る") }
+                    WorldClockCard()
+                }
             }
             composable("reliability") {
                 ReliabilityScreen(mainVm, onOpenLog = { navController.navigate("log") })
