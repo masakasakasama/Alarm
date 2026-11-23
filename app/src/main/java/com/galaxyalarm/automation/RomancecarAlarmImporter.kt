@@ -51,7 +51,7 @@ object RomancecarAlarmImporter {
         return (hour to minute).takeIf { hour in 0..23 && minute in 0..59 }
     }
 
-    private fun isMorningGroup(departure: Pair<Int, Int>?): Boolean =
+    private fun autoCreatesDepartureGroup(departure: Pair<Int, Int>?): Boolean =
         departure == (8 to 11) || departure == (8 to 31)
 
     suspend fun sync(app: AlarmApplication, events: List<Event>): Boolean {
@@ -103,9 +103,9 @@ object RomancecarAlarmImporter {
         val managed = managedAlarmIds(context)
         val protected = (prefs.getStringSet(HOTEL_MANAGED, emptySet()).orEmpty() +
             prefs.getStringSet(HOTEL_TRAIN_SHARED, emptySet()).orEmpty()).mapNotNull { it.toLongOrNull() }.toSet()
-        val morningGroups = repository.getGroups().filter { isMorningGroup(groupDeparture(it.name)) }
+        val departureGroups = repository.getGroups().filter { groupDeparture(it.name) != null }
             .mapTo(mutableSetOf()) { it.id }
-        val removed = repository.pruneInactiveImportedDuplicates(morningGroups, managed, protected)
+        val removed = repository.pruneInactiveImportedDuplicates(departureGroups, managed, protected)
         if (removed.isNotEmpty()) {
             check(prefs.edit().putStringSet(MANAGED, (managed - removed).mapTo(mutableSetOf()) { it.toString() }).commit())
         }
@@ -135,6 +135,12 @@ object RomancecarAlarmImporter {
         val other = readEvents(app, if (source == "direct") "bridge" else "direct")
         val upcoming = (events + other).filter { it.atMs > now && it.atMs <= now + 45L * 24 * 60 * 60_000 }
         val groups = repository.getGroups().toMutableList()
+        fun findTrainGroup(departure: Pair<Int, Int>) =
+            groups.filter { groupDeparture(it.name) == departure }
+                .minByOrNull { if (it.name.startsWith("ロマ ")) 0 else 1 }
+                ?: if (autoCreatesDepartureGroup(departure)) null
+                else groups.firstOrNull { it.name == PREVIOUS_GROUP }
+
         val automationGroupIds = groups.filter {
             groupDeparture(it.name) != null || it.name == PREVIOUS_GROUP || it.name == LEGACY_GROUP
         }.mapTo(mutableSetOf()) { it.id }
@@ -175,15 +181,23 @@ object RomancecarAlarmImporter {
         val routesPerSlot = slots.keys.groupingBy { it.third }.eachCount()
         for ((routeAndSlot, trips) in slots) {
             val (hotel, departure, slot) = routeAndSlot
-            val existing = if (hotel) groups.firstOrNull { it.name == PREVIOUS_GROUP }
-                else if (departure == null) groups.firstOrNull { it.name == LEGACY_GROUP }
-                else if (!isMorningGroup(departure)) groups.firstOrNull { it.name == PREVIOUS_GROUP }
-                else groups.filter { groupDeparture(it.name) == departure }
-                    .sortedBy { if (it.name.startsWith("ロマ ")) 0 else 1 }.firstOrNull()
+            val existing = when {
+                hotel -> groups.firstOrNull { it.name == PREVIOUS_GROUP }
+                departure == null -> groups.firstOrNull { it.name == LEGACY_GROUP }
+                else -> findTrainGroup(departure)
+            }
             val groupId = existing?.id ?: repository.addGroup(
-                if (hotel) PREVIOUS_GROUP else if (departure == null) LEGACY_GROUP else if (!isMorningGroup(departure)) PREVIOUS_GROUP
-                else "ロマ ${departure.first}:${departure.second.toString().padStart(2, '0')}発"
-            ).also { id -> repository.getGroup(id)?.let { groups.add(it) }; automationGroupIds.add(id) }
+                when {
+                    hotel -> PREVIOUS_GROUP
+                    departure == null -> LEGACY_GROUP
+                    autoCreatesDepartureGroup(departure) ->
+                        "ロマ ${departure.first}:${departure.second.toString().padStart(2, '0')}発"
+                    else -> PREVIOUS_GROUP
+                }
+            ).also { id ->
+                repository.getGroup(id)?.let { groups.add(it) }
+                automationGroupIds.add(id)
+            }
             val alarms = repository.getAlarms()
             val sameSlots = alarms.filter {
                 it.groupId == groupId && it.hour == slot.first && it.minute == slot.second &&
@@ -275,11 +289,7 @@ object RomancecarAlarmImporter {
         // An arrival can still be upcoming after its departure alert has fired.
         // Keep the known departure route so its old slot can also leave the wrong group.
         for (departureMs in upcoming.mapNotNull(::trainDeparture).distinct().filter { it <= now }) {
-            val trainTime = departureTime(departureMs)
-            val group = if (isMorningGroup(trainTime)) groups.filter { groupDeparture(it.name) == trainTime }
-                .sortedBy { if (it.name.startsWith("ロマ ")) 0 else 1 }.firstOrNull()
-                else groups.firstOrNull { it.name == PREVIOUS_GROUP }
-            if (group == null) continue
+            val group = findTrainGroup(departureTime(departureMs)) ?: continue
             val clock = Calendar.getInstance().apply { timeInMillis = departureMs - 180_000L }
                 .let { it.get(Calendar.HOUR_OF_DAY) to it.get(Calendar.MINUTE) }
             activeSlotGroups.getOrPut(clock) { mutableSetOf() }.add(group.id)
