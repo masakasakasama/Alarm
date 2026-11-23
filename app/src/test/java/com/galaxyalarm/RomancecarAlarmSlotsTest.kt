@@ -605,7 +605,6 @@ class RomancecarAlarmSlotsTest {
         val originalZone = java.util.TimeZone.getDefault()
         java.util.TimeZone.setDefault(tokyo)
         try {
-            val now = System.currentTimeMillis()
             val departure = java.util.Calendar.getInstance(tokyo).apply {
                 add(java.util.Calendar.DAY_OF_YEAR, 1)
                 set(java.util.Calendar.HOUR_OF_DAY, 7)
@@ -613,18 +612,19 @@ class RomancecarAlarmSlotsTest {
                 set(java.util.Calendar.SECOND, 0)
                 set(java.util.Calendar.MILLISECOND, 0)
             }.timeInMillis
+            val now = departure - 30 * 60_000L
             val events = listOf(
                 Event(departure, "新宿|E737", departure = true),
                 Event(departure + 55 * 60_000L, "本厚木|E737", trainDepartureMs = departure),
             )
             val fallback = repo.addGroup(RomancecarAlarmImporter.PREVIOUS_GROUP)
-            assertTrue(RomancecarAlarmImporter.sync(context, repo, events, now))
+            assertTrue("Sync should complete", RomancecarAlarmImporter.sync(context, repo, events, now))
             assertEquals(setOf(fallback), repo.getAlarms().map { it.groupId }.toSet())
             val reservations = repo.getAllScheduled()
             assertEquals(2, reservations.size)
 
             val trainGroup = repo.addGroup("ロマ 7:37発")
-            assertTrue(RomancecarAlarmImporter.sync(context, repo, events, now))
+            assertTrue("Sync should complete", RomancecarAlarmImporter.sync(context, repo, events, now))
             assertTrue(db.alarmDao().getByGroup(fallback).isEmpty())
             assertEquals(setOf(7 to 34, 8 to 29),
                 db.alarmDao().getByGroup(trainGroup).map { it.hour to it.minute }.toSet())
