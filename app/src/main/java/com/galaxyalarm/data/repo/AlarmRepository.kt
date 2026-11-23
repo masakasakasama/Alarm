@@ -11,6 +11,8 @@ import com.galaxyalarm.data.entity.AlarmEventLog
 import com.galaxyalarm.data.entity.AlarmGroup
 import com.galaxyalarm.data.entity.AlarmItem
 import com.galaxyalarm.data.entity.ScheduledOccurrence
+import com.galaxyalarm.data.model.SILENT_GROUP_NAME
+import com.galaxyalarm.data.model.isSilentGroup
 import com.galaxyalarm.data.model.SoundMode
 import com.galaxyalarm.data.model.VibrationPattern
 import com.galaxyalarm.data.model.AlarmDefinitionKey
@@ -66,10 +68,20 @@ class AlarmRepository(
         scheduler.hasSystemReservation(occurrence)
 
     suspend fun addGroup(name: String): Long = database.withTransaction {
+        appendGroup(name, getVisibleGroups())
+    }
+
+    suspend fun ensureSilentGroup(): Long = database.withTransaction {
         val groups = getVisibleGroups()
+        groups.firstOrNull { it.name == SILENT_GROUP_NAME }?.id
+            ?: groups.firstOrNull { isSilentGroup(it.name) }?.id
+            ?: appendGroup(SILENT_GROUP_NAME, groups)
+    }
+
+    private suspend fun appendGroup(name: String, groups: List<AlarmGroup>): Long {
         val now = System.currentTimeMillis()
         groups.forEachIndexed { index, group -> groupDao.setSortOrder(group.id, index, now) }
-        groupDao.insert(AlarmGroup(name = name, sortOrder = groups.size))
+        return groupDao.insert(AlarmGroup(name = name, sortOrder = groups.size))
     }
 
     suspend fun moveGroup(groupId: Long, moveUp: Boolean) = database.withTransaction {

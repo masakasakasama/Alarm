@@ -10,6 +10,7 @@ import com.galaxyalarm.backup.GitHubBackupStore
 import com.galaxyalarm.data.entity.AlarmGroup
 import com.galaxyalarm.data.entity.AlarmItem
 import com.galaxyalarm.data.model.SoundMode
+import com.galaxyalarm.data.model.isSilentGroup
 import com.galaxyalarm.data.repo.AlarmSaveResult
 import com.galaxyalarm.widget.NextAlarmWidgetProvider
 import java.util.Calendar
@@ -48,6 +49,12 @@ class EditAlarmViewModel(app: Application) : AndroidViewModel(app) {
 
     fun update(transform: (AlarmItem) -> AlarmItem) {
         draft.value = draft.value?.let(transform)?.soundForGroup(groups.value)
+    }
+
+    suspend fun moveDraftToSilentGroup() {
+        val groupId = repo.ensureSilentGroup()
+        groups.value = repo.getGroups()
+        update { it.copy(groupId = groupId) }
     }
 
     fun save(onResult: (AlarmSaveResult) -> Unit) = viewModelScope.launch {
@@ -116,10 +123,6 @@ class EditAlarmViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 }
-
-
-internal fun isSilentGroup(name: String?): Boolean =
-    name?.trim() in setOf("音無し", "音なし", "音無")
 
 internal fun AlarmItem.soundForGroup(groups: List<AlarmGroup>): AlarmItem {
     val group = groups.firstOrNull { it.id == groupId } ?: return this

@@ -37,6 +37,8 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -46,7 +48,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.galaxyalarm.data.model.SILENT_GROUP_NAME
 import com.galaxyalarm.data.model.SoundMode
+import com.galaxyalarm.data.model.isSilentGroup
 import com.galaxyalarm.data.repo.AlarmSaveResult
 import com.galaxyalarm.data.model.VibrationPattern
 import com.galaxyalarm.data.model.Weekdays
@@ -54,6 +58,8 @@ import com.galaxyalarm.ui.TimeFormat
 import com.galaxyalarm.ui.components.SectionCard
 import com.galaxyalarm.ui.components.ConfirmAlarmDeleteDialog
 import com.galaxyalarm.ui.components.WheelTimePicker
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.launch
 
 private val AmColor = Color(0xFF80DEEA)
 private val PmColor = Color(0xFFCE93D8)
@@ -73,7 +79,13 @@ fun EditAlarmScreen(
     val groups by vm.groups.collectAsStateWithLifecycle()
     val alarm = draft ?: return
     val isAm = alarm.hour < 12
-    val silentGroup = isSilentGroup(groups.firstOrNull { it.id == alarm.groupId }?.name)
+    val selectedGroupName = groups.firstOrNull { it.id == alarm.groupId }?.name
+    val silentGroup = isSilentGroup(selectedGroupName)
+    val canChooseSilentGroup = alarmId == 0L && groupId == 0L && !duplicate
+    val scope = rememberCoroutineScope()
+    var showSilentGroupDialog by rememberSaveable { mutableStateOf(false) }
+    var selectingSilentGroup by remember { mutableStateOf(false) }
+    var silentGroupError by remember { mutableStateOf(false) }
 
     var optionsExpanded by remember { mutableStateOf(false) }
     var showDeleteConfirm by remember(alarm.id) { mutableStateOf(false) }
@@ -119,12 +131,24 @@ fun EditAlarmScreen(
 
         // ── 音モード ──
         SectionCard(Modifier.fillMaxWidth()) {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                SoundChip("音あり", alarm.soundMode == SoundMode.SOUND, AmColor, Modifier.weight(1f), enabled = !silentGroup) {
-                    vm.update { it.copy(soundMode = SoundMode.SOUND, vibrationEnabled = true) }
+            Column {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    SoundChip("音あり", !silentGroup, AmColor, Modifier.weight(1f), enabled = !silentGroup) {
+                        vm.update { it.copy(soundMode = SoundMode.SOUND, vibrationEnabled = true) }
+                    }
+                    SoundChip("音なし", silentGroup, PmColor, Modifier.weight(1f), enabled = silentGroup || canChooseSilentGroup) {
+                        if (!silentGroup) {
+                            silentGroupError = false
+                            showSilentGroupDialog = true
+                        }
+                    }
                 }
-                SoundChip("音なし", alarm.soundMode != SoundMode.SOUND, PmColor, Modifier.weight(1f), enabled = silentGroup) {
-                    vm.update { it.copy(soundMode = SoundMode.VIBRATE_ONLY, vibrationEnabled = true) }
+                if (canChooseSilentGroup && silentGroup && selectedGroupName != null) {
+                    Text(
+                        "グループ：$selectedGroupName",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 }
             }
         }
@@ -185,7 +209,7 @@ fun EditAlarmScreen(
                         HorizontalDivider()
 
                         var groupExpanded by remember { mutableStateOf(false) }
-                        val currentGroup = groups.firstOrNull { it.id == alarm.groupId }?.name ?: "選択"
+                        val currentGroup = selectedGroupName ?: "選択"
                         Column {
                             Text("グループ", style = MaterialTheme.typography.titleMedium)
                             Spacer(Modifier.height(6.dp))
@@ -272,6 +296,45 @@ fun EditAlarmScreen(
         }
         OutlinedButton(onClick = onDone, modifier = Modifier.fillMaxWidth()) { Text("キャンセル") }
         Spacer(Modifier.height(24.dp))
+    }
+
+    if (showSilentGroupDialog) {
+        AlertDialog(
+            onDismissRequest = { if (!selectingSilentGroup) showSilentGroupDialog = false },
+            title = { Text("音なしに設定しますか？") },
+            text = {
+                Text(if (silentGroupError) {
+                    "グループを選べませんでした。もう一度お試しください。"
+                } else {
+                    "「$SILENT_GROUP_NAME」グループに入れ、振動でお知らせします。"
+                })
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = !selectingSilentGroup,
+                    onClick = {
+                        selectingSilentGroup = true
+                        scope.launch {
+                            try {
+                                vm.moveDraftToSilentGroup()
+                                showSilentGroupDialog = false
+                            } catch (cancelled: CancellationException) {
+                                throw cancelled
+                            } catch (_: Exception) {
+                                silentGroupError = true
+                            } finally {
+                                selectingSilentGroup = false
+                            }
+                        }
+                    },
+                ) { Text("OK") }
+            },
+            dismissButton = {
+                TextButton(enabled = !selectingSilentGroup, onClick = { showSilentGroupDialog = false }) {
+                    Text("キャンセル")
+                }
+            },
+        )
     }
 
     if (showDeleteConfirm) {
