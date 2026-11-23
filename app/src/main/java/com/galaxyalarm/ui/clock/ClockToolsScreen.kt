@@ -36,10 +36,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.galaxyalarm.data.model.SoundMode
-import com.galaxyalarm.data.model.Weekdays
 import com.galaxyalarm.timer.StopwatchController
 import com.galaxyalarm.timer.TimerController
 import com.galaxyalarm.timer.TimerEntry
@@ -157,23 +156,22 @@ fun NextAlarmCard(nextAlarm: AlarmRow?, onAddAlarm: () -> Unit, onEditAlarm: (Lo
 }
 
 @Composable
-internal fun UpcomingAlarmDetail(row: AlarmRow, onEditAlarm: (Long) -> Unit) {
+internal fun UpcomingAlarmTile(row: AlarmRow, onEditAlarm: (Long) -> Unit) {
     val alarm = row.alarm
-    val sound = if (alarm.soundMode == SoundMode.SOUND) "音あり" else "音なし"
-    val vibration = if (alarm.vibrationEnabled) "振動あり" else "振動なし"
-    val description = listOfNotNull(
-        row.groupName,
-        alarm.label.trim().takeIf { it.isNotEmpty() },
-        Weekdays.label(alarm.weekdaysMask),
-        sound,
-        vibration,
-    ).joinToString(" · ")
-    SectionCard(Modifier.fillMaxWidth(), onClick = { onEditAlarm(alarm.id) }, contentPadding = 10.dp) {
+    SectionCard(Modifier.width(132.dp), onClick = { onEditAlarm(alarm.id) }, contentPadding = 8.dp) {
         Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Text(TimeFormat.nextTrigger(row.nextTriggerAt), style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.SemiBold)
-            Text(description, style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(
+                TimeFormat.nextTrigger(row.nextTriggerAt),
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.SemiBold,
+            )
+            Text(
+                alarm.label.trim().ifEmpty { row.groupName },
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
         }
     }
 }
