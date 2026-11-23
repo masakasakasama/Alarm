@@ -73,6 +73,7 @@ fun EditAlarmScreen(
     val groups by vm.groups.collectAsStateWithLifecycle()
     val alarm = draft ?: return
     val isAm = alarm.hour < 12
+    val silentGroup = isSilentGroup(groups.firstOrNull { it.id == alarm.groupId }?.name)
 
     var optionsExpanded by remember { mutableStateOf(false) }
     var showDeleteConfirm by remember(alarm.id) { mutableStateOf(false) }
@@ -119,10 +120,10 @@ fun EditAlarmScreen(
         // ── 音モード ──
         SectionCard(Modifier.fillMaxWidth()) {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                SoundChip("音あり", alarm.soundMode == SoundMode.SOUND, AmColor, Modifier.weight(1f)) {
+                SoundChip("音あり", alarm.soundMode == SoundMode.SOUND, AmColor, Modifier.weight(1f), enabled = !silentGroup) {
                     vm.update { it.copy(soundMode = SoundMode.SOUND, vibrationEnabled = true) }
                 }
-                SoundChip("音なし", alarm.soundMode != SoundMode.SOUND, PmColor, Modifier.weight(1f)) {
+                SoundChip("音なし", alarm.soundMode != SoundMode.SOUND, PmColor, Modifier.weight(1f), enabled = silentGroup) {
                     vm.update { it.copy(soundMode = SoundMode.VIBRATE_ONLY, vibrationEnabled = true) }
                 }
             }
@@ -303,10 +304,11 @@ fun EditAlarmScreen(
 }
 
 @Composable
-private fun SoundChip(label: String, selected: Boolean, accentColor: Color, modifier: Modifier = Modifier, onClick: () -> Unit) {
+private fun SoundChip(label: String, selected: Boolean, accentColor: Color, modifier: Modifier = Modifier, enabled: Boolean = true, onClick: () -> Unit) {
     FilterChip(
         selected = selected,
         onClick = onClick,
+        enabled = enabled,
         label = { Text(label, Modifier.fillMaxWidth(), textAlign = androidx.compose.ui.text.style.TextAlign.Center) },
         modifier = modifier,
         colors = FilterChipDefaults.filterChipColors(

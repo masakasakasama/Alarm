@@ -29,7 +29,7 @@ class EditAlarmViewModel(app: Application) : AndroidViewModel(app) {
         val allGroups = repo.getGroups()
         groups.value = allGroups
         draft.value = if (alarmId > 0) {
-            repo.getAlarm(alarmId)?.let { if (duplicate) it.copy(id = 0L) else it }?.withoutSilent()
+            repo.getAlarm(alarmId)?.let { if (duplicate) it.copy(id = 0L) else it }?.soundForGroup(allGroups)
         } else {
             val now = Calendar.getInstance()
             // グループ詳細から追加した場合はそのグループに所属させる。無ければ未グループ。
@@ -42,17 +42,17 @@ class EditAlarmViewModel(app: Application) : AndroidViewModel(app) {
                 groupId = targetGroup,
                 hour = now.get(Calendar.HOUR_OF_DAY),
                 minute = now.get(Calendar.MINUTE)
-            )
+            ).soundForGroup(allGroups)
         }
     }
 
     fun update(transform: (AlarmItem) -> AlarmItem) {
-        draft.value = draft.value?.let(transform)?.withoutSilent()
+        draft.value = draft.value?.let(transform)?.soundForGroup(groups.value)
     }
 
     fun save(onResult: (AlarmSaveResult) -> Unit) = viewModelScope.launch {
         val item = draft.value ?: return@launch
-        val requested = item.withoutSilent().copy(enabled = true)
+        val requested = item.soundForGroup(groups.value).copy(enabled = true)
         val saveResult = repo.saveAlarmChecked(requested)
 
         // 「追加」は常にONで保存する操作。
@@ -106,9 +106,6 @@ class EditAlarmViewModel(app: Application) : AndroidViewModel(app) {
         runCatching { NextAlarmWidgetProvider.refresh(appContext) }
     }
 
-    private fun AlarmItem.withoutSilent(): AlarmItem =
-        if (soundMode == SoundMode.SILENT) copy(soundMode = SoundMode.VIBRATE_ONLY, vibrationEnabled = true) else this
-
     private suspend fun backupIfConfigured() {
         runCatching {
             val store = GitHubBackupStore(appContext)
@@ -117,5 +114,18 @@ class EditAlarmViewModel(app: Application) : AndroidViewModel(app) {
             val result = GitHubBackupClient.upload(settings.token, settings.gistId, repo.exportBackupJson())
             if (result.gistId != settings.gistId) store.saveGistId(result.gistId)
         }
+    }
+}
+
+
+internal fun isSilentGroup(name: String?): Boolean =
+    name?.trim() in setOf("音無し", "音なし", "音無")
+
+internal fun AlarmItem.soundForGroup(groups: List<AlarmGroup>): AlarmItem {
+    val group = groups.firstOrNull { it.id == groupId } ?: return this
+    return if (isSilentGroup(group.name)) {
+        copy(soundMode = SoundMode.VIBRATE_ONLY, vibrationEnabled = true)
+    } else {
+        copy(soundMode = SoundMode.SOUND)
     }
 }
