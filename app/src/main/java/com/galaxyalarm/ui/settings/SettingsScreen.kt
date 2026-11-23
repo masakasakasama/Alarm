@@ -51,7 +51,7 @@ import com.galaxyalarm.update.UpdateChecker
 import kotlinx.coroutines.launch
 
 @Composable
-fun SettingsScreen(vm: MainViewModel, onOpenLog: () -> Unit, onOpenReliability: () -> Unit = {}) {
+fun SettingsScreen(vm: MainViewModel, onOpenLog: () -> Unit, onOpenReliability: () -> Unit = {}, onOpenWorldClock: () -> Unit = {}) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val backupStore = remember { GitHubBackupStore(context.applicationContext) }
@@ -75,6 +75,10 @@ fun SettingsScreen(vm: MainViewModel, onOpenLog: () -> Unit, onOpenReliability: 
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         Text("設定", style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
+
+        OutlinedButton(onClick = onOpenWorldClock, modifier = Modifier.fillMaxWidth()) {
+            Text("世界時計")
+        }
 
         SectionCard(Modifier.fillMaxWidth()) {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {

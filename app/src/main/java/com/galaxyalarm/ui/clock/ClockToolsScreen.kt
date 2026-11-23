@@ -208,7 +208,7 @@ fun NowAndNextAlarmCard(vm: MainViewModel, onAddAlarm: () -> Unit) {
     }
 }
 
-/** アラームタブ上部に出す世界時計カード。 */
+/** 世界時計カード。 */
 @Composable
 fun WorldClockCard() {
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
