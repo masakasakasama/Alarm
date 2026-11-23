@@ -60,7 +60,7 @@ import com.galaxyalarm.ui.AlarmRow
 import com.galaxyalarm.ui.GroupRow
 import com.galaxyalarm.ui.MainViewModel
 import com.galaxyalarm.ui.TimeFormat
-import com.galaxyalarm.ui.clock.FollowingAlarmCard
+import com.galaxyalarm.ui.clock.UpcomingAlarmDetail
 import com.galaxyalarm.ui.clock.NextAlarmCard
 import com.galaxyalarm.ui.clock.NowCard
 import com.galaxyalarm.ui.clock.RunningTimerCard
@@ -108,6 +108,10 @@ fun AlarmsScreen(
         allRows.filter { AlarmRepository.isDefaultGroupName(it.groupName) }
     }
     val groupedRows = if (showingGroup) emptyList() else groupRows.filter { it.totalCount > 0 }
+    val upcoming = if (!showingGroup) {
+        val scheduled by vm.upcomingAlarmRows.collectAsStateWithLifecycle()
+        scheduled
+    } else emptyList()
     var actionTarget by remember { mutableStateOf<AlarmRow?>(null) }
     var deleteTarget by remember { mutableStateOf<AlarmRow?>(null) }
     val allEnabled = rows.isNotEmpty() && rows.all { it.alarm.enabled }
@@ -127,8 +131,18 @@ fun AlarmsScreen(
         // トップレベルでは時計やグループをアラーム一覧より先に表示する。
         if (!showingGroup) {
             item { NowCard() }
-            item { NextAlarmCard(vm = vm, onAddAlarm = onAddAlarm, onEditAlarm = onEditAlarm) }
-            item { FollowingAlarmCard(vm = vm, onEditAlarm = onEditAlarm) }
+            item(key = "next_alarm") {
+                NextAlarmCard(upcoming.firstOrNull(), onAddAlarm, onEditAlarm)
+            }
+            if (upcoming.size > 1) {
+                item(key = "upcoming_alarms") {
+                    Text("その後のアラーム", style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(start = 4.dp))
+                }
+                items(upcoming.drop(1), key = { "upcoming_${it.alarm.id}" }) { row ->
+                    UpcomingAlarmDetail(row, onEditAlarm)
+                }
+            }
             if (groupedRows.isNotEmpty()) {
                 item {
                     GroupStrip(
